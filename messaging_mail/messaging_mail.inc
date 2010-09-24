@@ -14,7 +14,13 @@ class Messaging_Method_Mail extends Messaging_Send_Method {
   public $address_type = 'mail';
   public $type = MESSAGING_TYPE_SEND;
   public $anonymous = TRUE;
-  
+
+  function method_name() {
+    return t('Mail');
+  }
+  function method_description() {
+    return t('Get messages by e-mail.');
+  }  
   /**
    * Get address for user account
    */

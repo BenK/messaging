@@ -31,13 +31,14 @@ function messaging_admin_settings() {
   
     $options = $enabled = array();
     foreach ($method_info as $method => $info) {
+      $send_method = messaging_send_method($method);
       $options[$method] = '';
       if ($info['enabled']) {
         $enabled[] = $method;
       }
-      $method_names[$method] = $info['title'];
-      $form['methods']['name'][$method]['#value'] = $info['title'];
-      $form['methods']['description'][$method]['#value'] = $info['description'];
+      $method_names[$method] = $send_method->title;
+      $form['methods']['name'][$method]['#markup'] = $send_method->name();
+      $form['methods']['description'][$method]['#markup'] = $send_method->description();
     }
     $form['methods']['messaging_method_enabled'] = array(
       '#type' => 'checkboxes',
@@ -74,19 +75,20 @@ function messaging_admin_method_settings() {
   if ($info = messaging_method_info()) {
     $form['methods'] = array('#theme' => 'messaging_admin_settings_table');
     foreach ($info as $method => $options) {
+      $send_method = messaging_send_method($method);
       $options += array('log' => 0, 'queue' => 0);
       $key = 'messaging_method_'.$method;
       // This will preserve settings for disabled modules
       $form['methods'][$key]['#tree'] = TRUE;
       $form['methods'][$key]['title'] = array(
         '#title' => t('Method'),
-        '#value' => $options['title'],
+        '#markup' => $send_method->title,
       );
       // Display name
       $form['methods'][$key]['name'] = array(
         '#title' => t('Name'),
         '#type' => 'textfield',
-        '#default_value' => $options['name'],
+        '#default_value' => $send_method->name(),
         '#size'          => 20,
       );
       // Log and queue can be enabled by 'Messaging Tool', disabled otherwise
@@ -94,7 +96,7 @@ function messaging_admin_method_settings() {
       $form['methods'][$key]['log'] = array('#type' => 'value', '#value' => 0);
     }
   } else {
-    $form['warning'] = array('#value' => t('You should enable some messaging method plug-ins for this to work.'));
+    $form['warning']['#markup'] = t('You should enable some messaging method plug-ins for this to work.');
   }
   $form = system_settings_form($form);
   // Refresh strings after update if translation enabled
@@ -253,7 +255,7 @@ function messaging_admin_method_filters() {
       );
     }
   } else {
-    $form['warning'] = array('#value' => t('You should enable some messaging method plug-ins for this to work.'));
+    $form['warning'] = array('#markup' => t('You should enable some messaging method plug-ins for this to work.'));
   }
   
   $form = system_settings_form($form);
@@ -264,7 +266,8 @@ function messaging_admin_method_filters() {
 /**
  * Format main methods settings form
  */
-function theme_messaging_admin_methods_table($elements) {
+function theme_messaging_admin_methods_table($variables) {
+  $elements = $variables['elements'];
   $output = '';
   $header = array(t('Enabled'), t('Default'), t('Name'), t('Description'));
   $rows = array();
@@ -276,15 +279,16 @@ function theme_messaging_admin_methods_table($elements) {
       drupal_render($elements['description'][$key]),   
     );
   }
-  $output .= theme('table', $header, $rows);
-  $output .= drupal_render($elements);
+  $output .= theme('table', array('header' => $header, 'rows' =>$rows));
+  $output .= drupal_render_children($elements);
   return $output;
 }
 
 /**
  * Theme settings as table
  */
-function theme_messaging_admin_settings_table($elements) {
+function theme_messaging_admin_settings_table($variables) {
+  $elements = $variables['elements'];
   if (isset($elements['#table_header'])) {
     $header = $elements['#table_header'];
     $extract_headers = FALSE;
@@ -297,7 +301,7 @@ function theme_messaging_admin_settings_table($elements) {
   foreach (element_children($elements) as $index) {
     $row = array();
     foreach (element_children($elements[$index]) as $key) {
-      if ($elements[$index][$key]['#type'] == 'value') continue;
+      if (isset($elements[$index][$key]['#type']) && $elements[$index][$key]['#type'] == 'value') continue;
       if (isset($elements[$index][$key]['#title'])) {
         if ($extract_headers) {
           // Extract the titles from elements
@@ -311,11 +315,11 @@ function theme_messaging_admin_settings_table($elements) {
     $extract_headers = FALSE;
   }
   if ($rows) {
-    $output = theme('table', $header, $rows);
+    $output = theme('table', array('header' => $header, 'rows' =>$rows));
   }
   else {
     $output = t('No data available');
   }
-  $output .= drupal_render($elements);
+  $output .= drupal_render_children($elements);
   return $output;  
 }

@@ -361,6 +361,6 @@ class Messaging_User_Destination extends Messaging_Destination {
    * Check address is valid
    */
   static function validate_address($address) {
-    return is_object($address) ? !empty($address->uid);
+    return is_object($address) ? !empty($address->uid) : FALSE;
   }
 }

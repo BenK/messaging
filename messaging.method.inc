@@ -48,12 +48,25 @@ abstract class Messaging_Method {
       $this->$key = $value;
     }
   }
+
+  function name() {
+    return $this->method_info('name', $this->method_name());
+  }
+  function description() {
+    return $this->method_info('description', $this->method_description());
+  }
+  function method_name() {
+    return t('Messaging method');
+  }
+  function method_description() {
+    return  t('Generic messaging method.');
+  }
   /**
    * Get info property
    */
-  function method_info($property = NULL) {
+  function method_info($property = NULL, $default = NULL) {
     if ($property) {
-      return isset($this->info[$property]) ? $this->info[$property] : NULL;
+      return isset($this->info[$property]) ? $this->info[$property] : $default;
     }
     else {
       return $this->info;
@@ -125,7 +138,7 @@ class Messaging_Send_Method extends Messaging_Method {
       $message->text['subject'] += array('#theme' => 'message_subject');
     }
     if (is_array($text['body'])) {
-      $message->text['body'] += array('#theme' => 'message_body')
+      $message->text['body'] += array('#theme' => 'message_body');
     }
     $message->prepared = TRUE;
   }
@@ -149,33 +162,25 @@ class Messaging_Send_Method extends Messaging_Method {
    *   Message object
    */
   function message_send($message) {
-    return $this->send_address($message->get_address(), $message);
+    $results = array();
+    foreach ($message->get_destinations() as $key => $destination) {
+      $results[$key] = $this->send_destination($destination, $message);
+    }
+    $message->set_resuts($results);
+    return (boolean)array_filter($results);
   }
   
   /**
-   * Message default callback: send iterating over all destinations
-   * 
-   * This can be overridden by any sending method that can send multiple messages in a more efficient way.
+   * Send message to destination
    */
-  function message_send_multiple($message, $addresses) {
-    $success = $fail = array();
-    foreach ($addresses as $to) {
-      if ($this->send_address($to, $message)) {
-        $success[] = $to;
-      }
-      else {
-        $fail[] = $to;
-      }
-    }
-    // If sent, set time. If failed set error
-    if ($success) {
-      $message->sent = time();
-    }
-    if ($fail) {
-      $destinations = check_plain(implode(', ', $fail));
-      $message->set_error("Sending ($this->method) to some destinations failed: $destinations.");
-    }
-    return $success && !$fail;
+  function send_destination($destination, $message) {
+    return $this->send_address($destination->get_address(), $message);
+  }
+  /**
+   * Send message to address
+   */
+  function send_address($address, $message) {
+    return FALSE;
   }
   
   /**
@@ -183,13 +188,16 @@ class Messaging_Send_Method extends Messaging_Method {
    * 
    * By default it is saved to the store, though some sending methods like 'simple' may not consider queueing.
    * 
-   * This will depend pretty much on the sending method as for some of them queueing is more expensive than sending.
+   * If no queue available we send the message
    */
   function message_queue($message) {
-    $message->queued = TRUE;
-    messaging_queue()->createItem($message);
-    $queue = DrupalQueue::get('messaging_queue');
-    return $queue->createItem($message);
+    if ($queue = messaging_store('queue')) {
+      return $queue->message_queue($message);
+    }
+    else {
+      $message->queued = FALSE;
+      return $this->message_send($message);
+    }
   }
   
   /**
@@ -293,12 +301,7 @@ class Messaging_Send_Method extends Messaging_Method {
       call_user_func($callback, $message, $account);
     }
   }
-  /**
-   * Send message to address, use sending callback
-   */
-  function send_address($address, $message) {
-    return FALSE;
-  }
+
   /**
    * Check whether it supports anonyous destination
    */

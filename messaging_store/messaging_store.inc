@@ -17,9 +17,142 @@ define('MESSAGING_TIME_MARGIN', variable_get('messaging_time_margin', 5));
  * 
  * This class has only static methods that will be invoked through 'messaing_store' function
  */
-class Messaging_Store {
+class Messaging_Store implements DrupalReliableQueueInterface {
   const STEP_ROWS = MESSAGING_STEP_ROWS;
   const TIME_MARGIN = MESSAGING_TIME_MARGIN;
+  // Queue name, will allow different sub-queues in the main queue
+  protected $name;
+
+  /**
+   * Start working with a queue.
+   *
+   * @param $name
+   *   Arbitrary string. The name of the queue to work with.
+   */
+  public function __construct($name = 'notifications') {
+    $this->name = $name;
+  }
+
+  /**
+   * Add a queue item and store it directly to the queue.
+   *
+   * @param $data
+   *   Arbitrary data to be associated with the new task in the queue.
+   * @return
+   *   TRUE if the item was successfully created and was (best effort) added
+   *   to the queue, otherwise FALSE. We don't guarantee the item was
+   *   committed to disk etc, but as far as we know, the item is now in the
+   *   queue.
+   */
+  public function createItem($message) {
+    $data += array(
+      'name' => $this->name,
+      'created' => time(),
+    );
+    $result = drupal_write_record('messaging_store', $data);
+    if (!empty($data['mqid'])) {
+      $message->mqid = $data['mqid'];
+    }
+    return $result;
+  }
+
+  /**
+   * Retrieve the number of items in the queue.
+   *
+   * This is intended to provide a "best guess" count of the number of items in
+   * the queue. Depending on the implementation and the setup, the accuracy of
+   * the results of this function may vary.
+   *
+   * e.g. On a busy system with a large number of consumers and items, the
+   * result might only be valid for a fraction of a second and not provide an
+   * accurate representation.
+   *
+   * @return
+   *   An integer estimate of the number of items in the queue.
+   */
+  public function numberOfItems() {
+    return db_query('SELECT COUNT(mqid) FROM {messaging_store} WHERE name = :name', array(':name' => $this->name))->fetchField();
+  }
+
+  /**
+   * Claim an item in the queue for processing.
+   *
+   * @param $lease_time
+   *   How long the processing is expected to take in seconds, defaults to an
+   *   hour. After this lease expires, the item will be reset and another
+   *   consumer can claim the item. For idempotent tasks (which can be run
+   *   multiple times without side effects), shorter lease times would result
+   *   in lower latency in case a consumer fails. For tasks that should not be
+   *   run more than once (non-idempotent), a larger lease time will make it
+   *   more rare for a given task to run multiple times in cases of failure,
+   *   at the cost of higher latency.
+   * @return
+   *   On success we return an item object. If the queue is unable to claim an
+   *   item it returns false. This implies a best effort to retrieve an item
+   *   and either the queue is empty or there is some other non-recoverable
+   *   problem.
+   */
+  public function claimItem($lease_time = 60) {
+      // Claim an item by updating its expire fields. If claim is not successful
+    // another thread may have claimed the item in the meantime. Therefore loop
+    // until an item is successfully claimed or we are reasonably sure there
+    // are no unclaimed items left.
+    while (TRUE) {
+      $item = db_query_range('SELECT * FROM {messaging_store} q WHERE expire = 0 AND name = :name ORDER BY created ASC', 0, 1, array(':name' => $this->name))->fetchObject();
+      if ($item) {
+        // Try to update the item. Only one thread can succeed in UPDATEing the
+        // same row. We cannot rely on REQUEST_TIME because items might be
+        // claimed by a single consumer which runs longer than 1 second. If we
+        // continue to use REQUEST_TIME instead of the current time(), we steal
+        // time from the lease, and will tend to reset items before the lease
+        // should really expire.
+        $update = db_update('messaging_store')
+          ->fields(array(
+            'expire' => time() + $lease_time,
+          ))
+          ->condition('mqid', $item->mqid)
+          ->condition('expire', 0);
+        // If there are affected rows, this update succeeded.
+        if ($update->execute()) {
+          $item->data = $item->data ? unserialize($item->data) : array();     
+          return $item;
+        }
+      }
+      else {
+        // No items currently available to claim.
+        return FALSE;
+      }
+    }
+  }    
+
+  public function releaseItem($item) {
+    $update = db_update('queue')
+      ->fields(array(
+        'expire' => 0,
+      ))
+      ->condition('mqid', $item->mqid);
+      return $update->execute();
+  }
+
+  public function deleteItem($item) {
+    db_delete('messaging_store')
+      ->condition('mqid', $item->mqid)
+      ->execute();
+  }
+
+  public function createQueue() {
+    // All tasks are stored in a single database table so there is nothing we need
+    // to do to createa new queue.
+  }
+
+  /**
+   * Delete a queue and every item in the queue.
+   */
+  public function deleteQueue() {
+    db_delete('messaging_store')
+      ->condition('name', $this->name)
+      ->execute();  
+  }
   
   /**
    * Capabilities: whether this Queue can expire old messages
@@ -27,15 +160,39 @@ class Messaging_Store {
   public static function can_expire() {
     return TRUE;
   }
+  
   /**
-   * Process messages on cron
+   * Queue message for next delivery
    */
-  public static function cron_process() {
-    // Pass on a time out condition, that will be based on 'max_execution_time'
-    $limit['timeout'] = variable_get('cron_semaphore', 0) + ini_get('max_execution_time') - self::TIME_MARGIN;
-    self::queue_process($limit);
-    self::queue_expire_messages();
-    self::queue_expire_logs();
+  public function message_queue($message) {
+    $message->queue = 1;
+    $message->queued = TRUE;
+    $message->store = $this->name;
+    // Set created date if not previously set
+    if (empty($message->created)) {
+      $message->created = time();
+    }
+    return $this->createItem($message);
+  }
+  
+  /**
+   * Count queued messages
+   */
+  public function queue_count() {
+    return $this->numberOfItems();
+  }
+  /**
+   * Process single messag from queue. Note we change visibility for this method
+   */
+  public static function queue_process_message($message) {
+    // Do not queue again but send out
+    $message->queue = 0;
+    $result = $message->send();
+    // If it needs logging use the default messaging_store
+    if ($message->log && !$message->logged) {
+      $message->log();
+    }
+    return $result;
   }
 
   /**
@@ -56,23 +213,79 @@ class Messaging_Store {
    * @return
    *   Array of results indexed by message id
    */
-  public static function queue_process($limits = array()) {
+  public function queue_process($limits = array()) {
     $results = array();
     $limit = self::process_limits($limits);
-    
-    // Processing loop. Will stop when we run out of rows or reach time / messages limit
+    return $this->queue_process_step($limit['message'], $limit['timeout']);
+  }
+  /**
+   * Retrieve and send queued messages
+   * 
+   * @param $limit
+   *   Maximum number of queued messages to process for this step
+   * @param $timeout
+   *   Optional time limit for processing, will return when if reached during processing
+   * @return
+   *   Array of sending results indexed by message id
+   */
+  protected static function queue_process_step($limit, $timeout = 0) {
     $count = 0;
-    $max = !empty($limit['message']) ? $limit['message'] : 0;
-    do {
-      $step = $max ? min(self::STEP_ROWS, $max - $count) : self::STEP_ROWS;
-      $result = self::queue_process_step($step, $limit['timeout']);
-      $number = count($result);
-      $count += $number;
-      $results = array_merge($results, $result);
-    } 
-    while ($number == $step && (!$limit['timeout'] || time() <= $limit['timeout']) && (!$max || $max > $count));
+    $sent = $unsent = $processed = array();
+    while ((!$limit || $count <= $limit) && (!$timeout || time() <= $timeout) && ($item = $this->claimItem())) {
+      $message = $item->data;
+      $success = $this->queue_process_message($message);
+      $queue->deleteItem($item);
+
+      $processed[] = $success;
+      if ($success) {
+        $sent[] = $message->mqid;
+        messaging_debug('Processed message from queue', array('message' => $message, 'success' => $success));
+      } else {
+        $unsent[] = $message->mqid;
+        watchdog('messaging', 'Failed queue processing for @message', array('@message' => (string)$message), WATCHDOG_WARNING);
+      }
+      $count++;
+    }
+    return $processed;
+  }
+ 
+  /**
+   * Get status summary
+   * 
+   * @param $fields
+   *   Fields to queue and group by
+   * @param $conditions
+   *   Array of field conditions to restrict the query
+   *   
+   * @return array
+   *   Array of arrays with the status fields and a 'total' counter for each row
+   */
+  public static function get_status($fields, $conditions = array()) {
+    $status = array();
+    $group = $fields;
+    $fields[] = 'count(*) AS total';
+    $result = self::query_select($fields, $conditions, array('group' => $group))->execute();  
+    while ($data = db_fetch_array($result)) {
+      $status[] = $data;
+    }
+    return $status;
+  }  
+  /**
+   * Delete all message from queue and logs
+   */
+  public static function delete_all() {
+    return db_delete('messaging_store')->execute();
+  }
   
-    return $results;
+  /**
+   * Process messages on cron
+   */
+  public function cron_process() {
+    // Pass on a time out condition, that will be based on 'max_execution_time'
+    $limit['timeout'] = variable_get('cron_semaphore', 0) + ini_get('max_execution_time') - self::TIME_MARGIN;
+    $this->queue_process($limit);
+    self::queue_expire_messages();
+    self::queue_expire_logs();
   }
   
   /**
@@ -95,143 +308,29 @@ class Messaging_Store {
   }
 
   /**
-   * Retrieve and send queued messages
-   * 
-   * @param $limit
-   *   Maximum number of queued messages to process for this step
-   * @param $timeout
-   *   Optional time limit for processing, will return when if reached during processing
-   * @return
-   *   Array of sending results indexed by message id
-   */
-  protected static function queue_process_step($limit, $timeout = 0) {
-    $count = 0;
-    $sent = $unsent = $processed = array();
-    $result = self::select_query('*', array('queue' => 1, 'cron' => 1), array('order' => array(self::DB_KEY), 'limit' => $limit));
-    while ($object = db_fetch_object($result)) {
-      $message = self::message_unpack($object, TRUE);
-      $success = self::queue_process_message($message);
-      $processed[$message->mqid] = $success;
-      if ($success) {
-        $sent[] = $message->mqid;
-        messaging_debug('Processed message from queue', array('message' => $message, 'success' => $success));
-      } else {
-        $unsent[] = $message->mqid;
-        watchdog('messaging', 'Failed queue processing for @message', array('@message' => (string)$message), WATCHDOG_WARNING);
-      }
-      $count++;
-      
-      // Check timeout after each message
-      if ($timeout && time() > $timeout) break;
-    }
-    if ($sent) {
-      self::message_sent($sent);
-    }
-    if ($unsent) {
-      self::message_sent($unsent, TRUE);
-    }
-    return $processed;
-  }
-  
-  /**
-   * Process single messag from queue
-   */
-  protected static function queue_process_message($message) {
-    // Do not queue again but send out
-    $message->queue = 0;
-    if (!empty($message->destinations)) {
-      $success = $message->send_multiple();
-    }
-    else {
-      $success = $message->send();
-    }
-    return $success; 
-  }
-
-  /**
    * Queue clean up
    * - Remove expired logs (include errors)
    * - Remove expired queued messages
    */
   public static function queue_clean() {
     $count = self::queue_expire_messages();
-    $count += self::queue_expire_logs(TRUE);
     return $count;
-  }
-  
-  /**
-   * Count queued messages
-   */
-  public static function queue_count() {
-    return db_result(self::select_query('COUNT(*)', array('queue' => 1, 'cron' => 1)));
-  }
-
-  /**
-   * Remove expired logs from queue
-   * 
-   * @param $force
-   *   Whether to force removal of logs and errors (even if logging not set)
-   */
-  public static function queue_expire_logs($force = FALSE) {
-    if (($expire_logs = variable_get('messaging_log', 0)) || $force) {
-      $time = time() - $expire_logs;  
-      db_query('DELETE FROM {' . self::DB_TABLE . '} WHERE log = 1 AND queue = 0 AND sent < %d OR error = 1 AND created < %d', $time, $time);
-      return db_affected_rows();
-    }
-    else {
-      return 0;
-    }
   }
 
   /**
    * Remove expired messages from queue
    */
-  public static function queue_expire_messages() {
+  public function expire_messages() {
     if ($expire_messages = variable_get('messaging_queue_expire', 0)) {
       $time = time() - $expire_messages;
-      db_query('DELETE FROM {' . self::DB_TABLE . '} WHERE created < %d', $time);
-      return db_affected_rows();
+      return db_delete('messaging_store')
+        ->condition('name', $this->name)
+        ->conditions('created', $time, '<')
+        ->execute();
     }
     else {
       return 0;
     }
-  }
-
-  /**
-   * Retrieve from messaging database storage
-   * 
-   * @param $params
-   *   Array of field value pairs
-   * @param $order
-   *   Optional array of field names to order by
-   * @param $limit
-   *   Optional maximum number of rows to retrieve
-   * @param $pager
-   *   Optional pager element for pager queries
-   * @param $full
-   *   Wehther to fully unpack the message and load related objects
-   */
-  public static function get_messages($params, $order = NULL, $limit = NULL, $pager = NULL, $full = TRUE) {
-    $messages = array();
-    $result = self::select_query('*', $params, array('limit' => $limit, 'order' => $order, 'pager' => $pager));
-    while ($msg = db_fetch_object($result)) {
-      $messages[$msg->mqid] = self::message_unpack($msg, $full);
-    }
-    return $messages;
-  }
-  
-  /**
-   * Build select query from main store table
-   */
-  protected static function query_select($fields = '*', $conditions = NULL, $query_params = array()) {
-    $fields = is_array($fields) ? $fields : array($fields);
-    $query['select'] = $fields;
-    $query['from'][] = '{' . self::DB_TABLE . '}';
-    if ($conditions) {
-      $query += self::query_fields($conditions);
-    }
-    $query += $query_params;
-    return $query;
   }
 
   /**
@@ -244,95 +343,40 @@ class Messaging_Store {
    * @param $query_params
    *   Mixed query parameters (limit, pager, group....)
    */
-  public static function select_query($fields = '*', $conditions = NULL, $query_params = array()) {
-    $query = self::query_select($fields, $conditions, $query_params);
-    return messaging_query_sql($query, TRUE);
-  }
-  /**
-   * Get status summary
-   * 
-   * @param $fields
-   *   Fields to queue and group by
-   * @param $conditions
-   *   Array of field conditions to restrict the query
-   *   
-   * @return array
-   *   Array of arrays with the status fields and a 'total' counter for each row
-   */
-  public static function get_status($fields, $conditions = array()) {
-    $status = array();
-    $group = $fields;
-    $fields[] = 'count(*) AS total';
-    $result = self::select_query($fields, $conditions, array('group' => $group));  
-    while ($data = db_fetch_array($result)) {
-      $status[] = $data;
+  public function query_select($conditions = array()) {
+    $conditions += array('name' => $this->name);
+    $query = db_select('messaging_store', 'm');
+    foreach ($conditions as $field => $value) {
+      $query->condition($field, $value);
     }
-    return $status;
+    return $query->execute();
   }
 
-  /**
-   * Load single message from store / static cache
+  /** 
+   * Load single message from store 
    */
-  public static function message_load($mqid, $refresh = FALSE) {
-    if (!$refresh) {
-      $cached = self::cache_get($mqid);
-    }
-    if (isset($cached)) {
-      return $cached;
-    } 
-    else {
-      $message = self::_message_load($mqid);
-      self::cache_set($mqid, $message ? $message : FALSE);
-      return $message;
-    }
-  }
-  
-  /**
-   * Load single message from store. No static cache.
-   */
-  protected static function _message_load($key) {
-    if ($message = db_fetch_object(self::select_query('*', array(self::DB_KEY => $key), array('limit' => 1)))) {
-      return self::message_unpack($message, TRUE);
-    }
-  }
-  
-  /**
-   * Build parameters for where clause
-   * 
-   * @param $fields
-   *   Array of field conditions (name => value/s)
-   */
-  protected static function query_fields($fields) {
-    $query =  _messaging_query_where(self::DB_TABLE, $fields);
-    // Handle special case 'max_mqid'
-    if (isset($fields['max_mqid'])) {
-      $query['where'][] = 'mqid <= %d';
-      $query['args'][] = $fields['max_mqid'];
-    }
-    return $query;
+  public function message_load($msid) {
+    $message = $this->query_select(array(), array('msid' => $mqid))->fetchObject();
+    $message->store = $this->name;
+    return $message;
   }
   /**
-   * Unpack stored messages
-   * 
-   * @param $message
-   *   Array as retrieved from the db store
-   * @param $full
-   *   True for loading the account data if this message is intended for a user
-   *   And loading the file objects associated too
+   * Load full message from wherever it is
    */
-  protected static function message_unpack($message, $full = FALSE) {
-    // Unserialize stored parameters
-    if ($message->params) {
-      $message->params = unserialize($message->params);
+  public static function load($msid) {
+    $message = Messating_Message::load($msid);
+    if ($message && !empty($message->store) && ($store = messaging_store($message->store))) {
+      if ($stored = $store->load($msid)) {
+        return $stored;
+      }
     }
-    // Unserialize data field
-    drupal_unpack($message);
-    // Saved messages are prepared and rendered
-    $message->prepared = $message->rendered = TRUE;
-    // And they may be already marked for queue / log
-    $message->queued = $message->queue;
-    $message->logged = $message->log;
-    return messaging_message_build($message);
+    return $message;
+  }
+  /**
+   * Load multiple messages
+   */
+  public static function load_multiple($msids = array(), $conditions = array()) {
+    return entity_load('notifications_message', $eids, $conditions);
   }
   
   /**
@@ -343,8 +387,7 @@ class Messaging_Store {
    * @param $error
    *   Optional, just mark as error move queue messages to log, for messages on which sending failed 
    */
-  public static function message_sent($mqid, $error = FALSE) {
-    $mqid = is_array($mqid) ? $mqid : array($mqid);
+  public function message_sent($mqid, $error = FALSE) {
     $where = self::query_fields(array('mqid' => $mqid));
     if ($error) {
       // Error, log them all, sent = 0
@@ -364,33 +407,24 @@ class Messaging_Store {
    * Delete multiple messages from queue
    */
   public static function delete_multiple($params) {
-    $where = self::query_fields($params);
-    db_query('DELETE FROM {' . self::DB_TABLE . '} WHERE '.implode(' AND ', $where['where']), $where['args']);
+    $query = db_delete('messaging_store');
+    foreach ($params as $field => $value) {
+      $query->condition($field, $value);
+    }
+    return $query->execute();
   }
  
-  /**
-   * Delete all message from queue and logs
-   */
-  public static function delete_all() {
-    db_query('DELETE FROM {' . self::DB_TABLE . '}');
-    return db_affected_rows();
-  }
 
   /**
-   * Delete single message from store
+   * Delete single message from all queues
    */
-  public static function message_delete($message) {
-    $mqid = self::message_key($message);
-    self::cache_set($mqid, FALSE);
-    db_query('DELETE FROM {' . self::DB_TABLE . '} WHERE ' . self::DB_KEY . ' = %d', $mqid);
+  public function message_delete($message) {
+    return db_delete('messaging_store')
+      ->condition('name', $this->name)    
+      ->condition('mqid', $message->mqid)
+      ->execute();
   }
-  
-  /**
-   * Get storage key from message
-   */
-  protected static function message_key($message) {
-    return is_object($message) ? $message->mqid : $message;
-  }
+
   /**
    * Put into database storage, create one line for each destination
    * 
@@ -401,79 +435,11 @@ class Messaging_Store {
    * @return int
    *   Result from drupal_write_record: SAVED_NEW, SAVED_UPDATED, FALSE
    */
-  public static function message_save($message) {
+  public function message_save($message) {
     // Check we have a message object
-    $message = messaging_message_build($message);
-    self::message_prepare($message);
-    $update = empty($message->mqid) ? array() : 'mqid';
-    $result = drupal_write_record(self::DB_TABLE, $message, $update);
-    if ($result) {
-      // For this store, queue and log are the same so we mark the messages accordingly
-      $message->updated = FALSE;
-      $message->queued = $message->queue;
-      $message->logged = $message->log;
-      // Store it into the cache for further reference
-      self::cache_set(self::message_key($message), $message);
-    }
+    $result = $this->createItem($message);
     messaging_debug('Saved message to store', array('message' => $message));
     return $result;
-  }
-
-  /**
-   * Log message for further reference
-   */
-  public static function message_log($message) {
-    $message->log = 1;
-    $message->queue = $message->cron = 0;
-    return self::message_save($message);
-  }
-
-  /**
-   * Queue message for next delivery
-   */
-  public static function message_queue($message) {
-    $message->queue = 1;
-    return self::message_save($message);
-  }
-  /**
-   * Prepare for storage
-   */
-  protected static function message_prepare($message) {
-    // On this store we can just save messages prepared and rendered
-    $message->prepare();
-    $message->render();
-  
-    // Set created date if not previously set
-    if (empty($message->created)) {
-      $message->created = time();
-    }
- 
-    // Normalize some values. Boolean parameters must be 0|1
-    foreach (array('queue', 'log', 'cron') as $field) {
-      $message->$field = empty($message->$field) ? 0 : 1;
-    }
-    // Add fields to serialize. All persistent properties that are not in the schema
-    $schema = drupal_get_schema(self::DB_TABLE);
-    $serialize_fields = array_diff($message->data_fields(), array_keys($schema['fields'])); 
-    foreach ($serialize_fields as $field) {
-      if (isset($message->$field)) {
-        $data[$field] = $message->$field;
-      }
-    }
-    $message->data = !empty($data) ? $data : NULL;
-  }
-  
-  /**
-   * Save message to static cache
-   */
-  protected static function cache_set($key, $value) {
-    drupal_static_cache_set('messaging_store', $key, $value);
-  }
-  /**
-   * Get message from static cache
-   */
-  protected static function cache_get($key) {
-    return drupal_static_cache_get('messaging_store', $key);
   }
   
   /**
@@ -481,8 +447,10 @@ class Messaging_Store {
    */
   public static function admin_help() {
     return array(
-      'name' => t('Messaging Store (built-in)'),
-      'queue' => t('Queued messages will be processed on cron.'),
+      'name' => t('Messaging Queue.'),
+      'description' => t('It uses <i>Drupal Queue</i> module for handling queued messages.'),
+      'queue' => t('Queued messages can be processed on cron or using multiple workers with <i>drush queue-cron</i>.'),
+      'logs' => t('Logs will be kept if enabled using the <i>Messaging Store</i> tables.'),
     );
   }
 

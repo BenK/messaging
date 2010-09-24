@@ -55,7 +55,7 @@ function messaging_simple_access($account) {
  * Sample Implementation of messaging pull methods
  */
 function messaging_simple_user_page($account, $op = NULL, $id = NULL) {
-  drupal_set_title(t('Messages for %name', array('%name' => $account->name)));
+  drupal_set_title(t('Messages for %name', array('%name' => $account->name)), PASS_THROUGH);
   // Fetch all pending messages.
   switch ($op) {
     case 'view':
@@ -82,7 +82,7 @@ function messaging_simple_user_overview($account) {
   }
   if (!empty($rows)) {
     $header = array(t('Subject'), t('From'), t('Date'));
-    $output .= theme('table', $header, $rows);
+    $output .= theme('table', array('header' => $header, 'rows' =>$rows));
     $output .= theme('pager', array(), MESSAGING_SIMPLE_PAGER);
   } else {
     $output .= '<p class="message-queue-empty">' . t('No pending messages') . '</p>';
@@ -138,7 +138,8 @@ function messaging_simple_user_message_submit($form, &$form_state) {
  *   Array of message objects that meet the criteria
  */
 function messaging_simple_get_messages($params, $pager = MESSAGING_SIMPLE_PAGER) {
-  $query = db_select('messaging_simple', 'm');
+  $query = db_select('messaging_simple', 'm')
+    ->fields('m');
   foreach ($params as $field => $value) {
     $query->condition($field, (int)$value);
   }

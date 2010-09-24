@@ -74,7 +74,7 @@ function messaging_template_format_table($tree, $depth = 0) {
   }
   else {
     $header = array(t('Message groups'), t('Parts')); 
-    return theme('table', $header, $rows);    
+    return theme('table', array('header' => $header, 'rows' =>$rows));    
   }
 }
 
@@ -150,7 +150,7 @@ function messaging_template_admin_template_edit($group, $langcode = NULL) {
   $language = $language_list[$langcode];
   $output = '';
   if ($group && $language) {
-    drupal_set_title(t('Template for %name', array('%name' => $group['name'])));
+    drupal_set_title(t('Template for %name', array('%name' => $group['name'])), PASS_THROUGH);
     // Build navigation tree
     $output .= drupal_get_form('messaging_template_admin_message_form', $group, $language);
   }
@@ -248,7 +248,7 @@ function messaging_template_admin_message_form($form_state, $group_info, $langua
       '#collapsed' => TRUE,
     );
     $form['tokens']['list'] = array(
-      '#value' => theme('table', $headers, $rows, array('class' => 'description'))
+      '#markup' => theme('table', $headers, $rows, array('class' => 'description'))
     );
   }
   $form['submit'] = array(

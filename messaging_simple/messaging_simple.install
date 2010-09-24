@@ -53,20 +53,6 @@ function messaging_simple_schema() {
   );
   return $schema;
 } 
-  
-/**
- * Implementation of hook_install()
-*/
-function messaging_simple_install() {
-  drupal_install_schema('messaging_simple');  
-}
-
-/**
- * Implementation of hook_uninstall()
-*/
-function messaging_simple_uninstall() {
-  drupal_uninstall_schema('messaging_simple');  
-}
 
 /**
  * Update: Create table and move messages from messaging_store

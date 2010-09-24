@@ -5,34 +5,32 @@
 * Implementation of hook_schema().
 */
 function messaging_schema() {
-  $schema['messaging_store'] = array(
-    'description' => 'Stores and queues messages.',
+  $schema['messaging_message'] = array(
+    'description' => 'Stores message destination for users and non users.',
     'fields' => array(
-      'msid' => array(
-        'type' => 'serial',
-        'unsigned' => TRUE,
-        'not null' => TRUE,
-        'description' => 'Primary Key: Unique item ID.',
+      'msid'    => array(      
+        'type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE,
+        'description' => 'Unique message id.',
       ),
-      'name' => array(
-        'type' => 'varchar',
-        'length' => 255,
-        'not null' => TRUE,
-        'default' => '',
-        'description' => 'The queue name.',
+      'method' => array(
+        'type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => '',
+        'description' => 'Messaging send method key.',
       ),
-      'data' => array(
-        'type' => 'blob',
-        'not null' => FALSE,
-        'size' => 'big',
-        'serialize' => TRUE,
-        'description' => 'The arbitrary data for the item.',
+      'store' => array(
+        'type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => '',
+        'description' => 'Where the message is stored.',
       ),
-      'expire' => array(
-        'type' => 'int',
-        'not null' => TRUE,
-        'default' => 0,
-        'description' => 'Timestamp when the claim lease expires on the item.',
+      'mqid'  => array(      
+        'type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0,
+        'description' => 'Queue id if any.',
+      ),
+      'language' => array(
+        'type' => 'varchar', 'length' => 12, 'not null' => TRUE, 'default' => '',
+        'description' => 'Language code.',
+      ),
+      'status' => array(
+        'type' => 'int', 'not null' => TRUE, 'default' => 1, 'size' => 'tiny',
+        'description' => 'Message status.',
       ),
       'created' => array(
         'type' => 'int',
@@ -40,98 +38,26 @@ function messaging_schema() {
         'default' => 0,
         'description' => 'Timestamp when the item was created.',
       ),
-      'method' => array(
-        'type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => '',
-        'description' => 'Messaging send method key.',
+      'updated' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Timestamp when the item was created.',
       ),
-      'language' => array(
-        'type' => 'varchar', 'length' => 12, 'not null' => TRUE, 'default' => '',
-        'description' => 'Language code.',
+      'sent' => array(
+        'type' => 'int', 'not null' => TRUE, 'default' => 0,
+        'description' => 'Unix timestamp, when the last message was sent to this address.',
+      ),
+      'error' => array(
+        'type' => 'int', 'not null' => TRUE, 'default' => 0, 'size' => 'tiny',
+        'description' => 'Error code if any.',
       ),
     ),
     'primary key' => array('msid'),
     'indexes' => array(
-      'name_created' => array('name', 'created'),
-      'expire' => array('expire'),
-    ),
+      'method' => array('method'),
+    ),  
   );
-/*
-  $schema['messaging_store'] = array(
-    'description' => 'Stores queued messages to be sent or sent messages as logs.',
-    'fields' => array(
-      'mqid'    => array(      
-        'type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE,
-        'description' => 'Unique message id.',
-      ),
-      'uid'    => array(
-        'type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0,
-        'description' => 'The {user}.uid for destination if it is a unique destination.',        
-      ),
-      'sender' => array(
-        'type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0,
-        'description' => 'The {user}.uid who sent the message if any.',     
-      ),
-      'method' => array(
-        'type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => '',
-        'description' => 'Messaging send method key.',
-      ),
-      'language' => array(
-        'type' => 'varchar', 'length' => 12, 'not null' => TRUE, 'default' => '',
-        'description' => 'Language code.',
-      ),
-      'destination' => array(
-        'type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => '',
-        'description' => 'Destination identifier, it may be an email address.',
-      ),
-      'subject' => array(
-        'type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => '',
-        'description' => 'Message subject, single text line.',
-      ),
-      'body' => array(
-        'type' => 'text', 'not null' => TRUE, 'size' => 'big',
-        'description' => 'Message body, multiple text line.',
-      ),
-      'params' => array(
-        'type' => 'text', 'not null' => TRUE, 'size' => 'big', 'serialize' => TRUE,
-        'description' => 'Additional serialized parameters.',
-      ),
-      'created' => array(
-        'type' => 'int', 'not null' => TRUE, 'default' => 0,
-        'description' => 'Unix timestamp, when the message was created/stored.',
-      ),
-      'sent' => array(
-        'type' => 'int', 'not null' => TRUE, 'default' => 0,
-        'description' => 'Unix timestamp, when the message was sent.',
-      ),  
-      'cron' => array(
-        'type' => 'int', 'not null' => TRUE, 'default' => 0, 'size' => 'tiny',
-        'description' => 'Will be 1 if row marked for processing on cron.',
-      ),
-      'queue' => array(
-        'type' => 'int', 'not null' => TRUE, 'default' => 0, 'size' => 'tiny',
-        'description' => 'Will be 1 if this is a queued message.',
-      ),
-      'log' => array(
-        'type' => 'int', 'not null' => TRUE, 'default' => 0, 'size' => 'tiny',
-        'description' => 'Will be 1 if this is a message log.',
-      ),
-      'error' => array(
-        'type' => 'int', 'not null' => TRUE, 'default' => 0, 'size' => 'tiny',
-        'description' => 'Error code.',
-      ),
-      'data' => array(
-        'type' => 'text', 'not null' => TRUE, 'size' => 'big', 'serialize' => TRUE,
-        'description' => 'Additional serialized parameters.',
-      ),
-    ),    
-    'primary key' => array('mqid'),
-    'indexes' => array(
-      'cron' => array('cron'),
-      'queue' => array('queue'),
-      'log' => array('log'),
-    ),
-  );
-*/
   $schema['messaging_destination'] = array(
     'description' => 'Stores message destination for users and non users.',
     'fields' => array(
@@ -168,32 +94,3 @@ function messaging_schema() {
   );
   return $schema;
 }
-
-/**
-* Implementation of hook_install().
-*/
-function messaging_install() {
-  // Create tables.
-  drupal_install_schema('messaging');
-}
-
-/**
-* Implementation of hook_uninstall().
-*/
-function messaging_uninstall() {
-  // Remove tables.
-  drupal_uninstall_schema('messaging');
-  // Remove the default filter, plain text added in install
-  if ($format = variable_get('messaging_default_filter', 0)) {
-    db_query('DELETE FROM {filters} WHERE format = %d', $format);
-    db_query('DELETE FROM {filter_formats} WHERE format = %d', $format);
-  }
-  // Remove variables
-  variable_del('messaging_debug');
-  variable_del('messaging_default_filter');
-  variable_del('messaging_default_method');
-  variable_del('messaging_log');
-  variable_del('messaging_process_limit');
-  db_query("DELETE FROM {variable} WHERE name LIKE 'messaging_method_%'");
-}
-
