@@ -20,9 +20,6 @@ define('MESSAGING_TIME_MARGIN', variable_get('messaging_time_margin', 5));
 class Messaging_Store {
   const STEP_ROWS = MESSAGING_STEP_ROWS;
   const TIME_MARGIN = MESSAGING_TIME_MARGIN;
-  // Storage parameters
-  const DB_TABLE = 'messaging_store';
-  const DB_KEY = 'mqid';
   
   /**
    * Capabilities: whether this Queue can expire old messages
