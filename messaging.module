@@ -11,19 +11,6 @@
  * By Development Seed, http://wwww.developmentseed.org
  */
 
-// Method with push delivery. Messages will be pushed to the user using messaging sending methods.
-define('MESSAGING_TYPE_PUSH', 1);
-// Method type with pull delivery. Messages will be pulled from queue by the plug-in
-define('MESSAGING_TYPE_PULL', 2);
-// Outgoing method
-define('MESSAGING_TYPE_OUTGOING', 4);
-// Incoming method
-define('MESSAGING_TYPE_INCOMING', 8);
-// Disable queue for this method, when sending is more 'expensive' than queueing (like for simple method)
-define('MESSAGING_TYPE_NOQUEUE', 16);
-// Shorthand type: Push + Outgoing
-define('MESSAGING_TYPE_SEND', MESSAGING_TYPE_PUSH | MESSAGING_TYPE_OUTGOING);
-
 // Special string for empty text part
 define('MESSAGING_EMPTY', '<none>');
 
@@ -34,19 +21,83 @@ define('MESSAGING_CACHE_LIMIT', variable_get('messaging_cache_limit', 1000));
 define('MESSAGING_DEFAULT_CRON_PERCENT', variable_get('messaging_default_cron_percent', 80));
 
 /**
- * Implementation of hook_autoload_info().
+ * Base class for all Notifications objects
  */
-function messaging_autoload_info() {
-  return array(
-    'Messaging_User_Object' => array('file' => 'includes/messaging_object.class.inc'),
-    'Messaging_Object' => array('file' => 'includes/messaging_object.class.inc'),
-    'Messaging_Cached_Object' => array('file' => 'includes/messaging_object.class.inc'),
-    'Messaging_Destination' => array('file' => 'includes/messaging_destination.class.inc'),
-    'Messaging_Message' => array('file' => 'includes/messaging_message.class.inc'),
-    'Messaging_Send_Method' => array('file' => 'includes/messaging_method.class.inc'),
-    'Messaging_Store' => array('file' => 'includes/messaging_store.class.inc'),
-    'Messaging_None' => array('file' => 'includes/messaging_object.class.inc'),
-  ); 
+class Messaging_Object {
+  /**
+   * Constructor
+   */
+  public function __construct($template = NULL) {
+    if ($template) {
+      $properties = (array)$template;
+      foreach ($properties as $key => $value) {
+        $this->$key = $value;
+      }
+    }    
+  }
+  /**
+   * They need a build function
+   */
+  public static abstract function build_object($object);
+}
+
+/**
+ * Default entity controller for notifications objects
+ */
+class MessagingEntityController extends DrupalDefaultEntityController {
+  /**
+   * Builds objects of specific classes upon loading.
+   * 
+   * The class will be in 'base class' parameter
+   *
+   * @param $queried_entities
+   *   Associative array of query results, keyed on the entity ID.
+   * @param $revision_id
+   *   ID of the revision that was loaded, or FALSE if teh most current revision
+   *   was loaded.
+   */
+  protected function attachLoad(&$queried_entities, $revision_id = FALSE) {
+    $class = $this->entityInfo['base class'];
+    foreach ($queried_entities as $id => $entity) {
+      $queried_entities[$id] = call_user_func(array($class, 'build_object'), $entity); 
+    }
+    return parent::attachLoad($queried_entities, $revision_id);
+  }
+}
+
+/**
+ * Implements hook_entity_info().
+ */
+function messaging_entity_info() {
+  // Notifications_Event
+  $info['messaging_message'] = array(
+    'label' => t('Message'),
+    'controller class' => 'MessagingEntityController',
+    'base class' => 'Messaging_Message',
+    'base table' => 'messaging_message',
+    'entity keys' => array(
+      'id' => 'msid',
+    ),
+    
+  );
+  // Notifications_Subscription
+  $info['messaging_destination'] = array(
+    'label' => t('Destination'),
+    'controller class' => 'MessagingEntityController',
+    'base class' => 'Messaging_Destination',
+    'base table' => 'messaging_destination',
+    'entity keys' => array(
+      'id' => 'mdid',
+    ),
+    'view modes' => array(
+      // @todo View mode for display as a field (when attached to nodes etc).
+      'full' => array(
+        'label' => t('Destinations page'),
+        'custom settings' => FALSE,
+      ),
+    ),
+  );  
+  return $return;
 }
 
 /**
@@ -138,8 +189,13 @@ function messaging_menu() {
 /**
  * Implementation of hook_perm()
  */
-function messaging_perm() {
-  return array('administer messaging');
+function messaging_permission() {
+  return array(
+    'administer messaging' =>  array(
+      'title' => t('Administer messaging'),
+      'description' => t('Administer messaging.'),
+    ),
+  );
 }
 
 /**
@@ -187,7 +243,7 @@ function messaging_user($type, $edit, &$user, $category = NULL) {
  *   Array of properties to build a custom send method or override existing ones
  */
 function messaging_send_method($method, $method_info = array()) {
-  $send_methods = &messaging_static(__FUNCTION__);
+  $send_methods = &drupal_static(__FUNCTION__);
   
   if (is_object($method)) {
     return $method;
@@ -532,20 +588,10 @@ function messaging_messaging($op, $type = NULL) {
       // Get some built in address types
       $types['user'] = array(
         'name' => t('User name'), // Name of the address for this method
-        'format callback' => 'messaging_user_format_name', // Format address for display
-        'account_property' => 'uid', // Property on user account
-        'field_name' => 'uid', // Field on which this address is stored
-        'field_table' => 'users', // Table on which this address is stored
+        'class' => 'Messaging_User_Destination',
       );
       return $types;
   }
-}
-
-/**
- * Map mail to uid
- */
-function messaging_address_get_uid($address, $property = 'mail') {
-  return db_result(db_query("SELECT uid FROM {users} WHERE $property = '%s'", $address));
 }
 
 /**
@@ -556,33 +602,15 @@ function messaging_address_get_uid($address, $property = 'mail') {
  * This API can be replaced by setting a new class name in the 'messaging_store' variable
  * Or the whole thing can be skipped by settings 'messaging_store' to 'Messaging_None'
  */
-function messaging_store() {
+function messaging_store($name = 'queue') {
   static $messaging_store;
   
-  if (!isset($messaging_store)) {
-    $class = variable_get('messaging_store', 'Messaging_Store');
-    $messaging_store = new $class();
+  if (!isset($messaging_store[$name])) {
+    $class = variable_get('messaging_store_' . $name, 'Messaging_Store');
+    $messaging_store[$name] = new $class($name);
   }
 
-  return $messaging_store;
-}
-
-/**
- * Helper user loading function with static caching
- */
-function messaging_load_user($uid) {
-  $cache = &messaging_static(__FUNCTION__);
-  if (!$cache || !array_key_exists($uid, $cache)) {
-    if ($uid) {
-      $cache[$uid] = user_load($uid);
-    }
-    else {
-      $cache[0] = drupal_anonymous_user();
-      // This will prevent some notice from token module
-      $cache[0]->name = variable_get('anonymous', 'Anonymous');
-    }
-  }
-  return $cache[$uid];
+  return $messaging_store[$name];
 }
 
 /**
@@ -627,28 +655,6 @@ function messaging_message_in($method, $channel, $message, $params = array()) {
   } else {
     return FALSE;
   }
-}
-
-/**
- * Update messaging method.
- * 
- * When a messaging method is disabled, we need to update current settings for this and other modues
- * 
- * @param $method
- *   Method to disable
- * @param $replace
- *   Optional replacement method suggested by the disabled one.
- */
-function messaging_method_disable($method, $replace = NULL) {
-  module_load_include('install', 'messaging');
-  $replace = isset($replace) ? $replace : messaging_update_method_replace($method, TRUE);
-  messaging_update_method_disable($method, $replace);
-  if ($replace) {
-    drupal_set_message(t('Disabled messaging sending method %method and replaced by %replace', array('%method' => messaging_method_info($method, 'title'), '%replace' => messaging_method_info($replace, 'title'))));
-  } else {
-    // It seems all methods are disabled, print warning
-    drupal_set_message(t('Disabled messaging sending method but cannot find a replacement. Please, enable some other sending method.'), 'error');
-  }  
 }
 
 /**
@@ -812,27 +818,53 @@ function _messaging_callback_get($info, $type, $default = NULL) {
 }
 
 /**
- * Helper function to get property from an info array
+ * Get information from an array of data
  * 
- * Depending on method and property, returns the full array or a specific property
+ * @param $data
+ *   Array of data indexed by type
+ * @param $type
+ *   Type to return out of the array, none to return all types
+ * @param $property
+ *   Property to return, none to return all properties
+ * @param $default
+ *   Default value to return if not property set
  */
-function messaging_array_info($info, $method = NULL, $property = NULL, $default = NULL) {
-  if ($method && $property) {
-    return isset($info[$method][$property]) ? $info[$method][$property] : $default;
-  } elseif ($method) {
-    return isset($info[$method]) ? $info[$method] : $default;
-  } elseif ($property) {
-    // Get this property as a list indexed by method
-    $props = array();
-    foreach($info as $method => $values) {
-      if (isset($values[$property])) {
-        $props[$method] = $values[$property];
-      }
-    }
-    return $props;
-  } else {
-    return $info;
+function messaging_array_info($data, $type = NULL, $property = NULL, $default = NULL) {
+  if ($type && $property) {
+    return isset($data[$type][$field]) ? $data[$type][$field] : $default;
+  }
+  elseif ($type) {
+    return isset($data[$type]) ? $data[$type] : array();
+  }
+  elseif ($property) {
+    return notifications_array_list($data, $property, FALSE, $default);
+  }
+  else {
+    return $data;
   }  
+}
+
+/**
+ * Get a list of properties as $type => $value
+ * 
+ * @param $field
+ *   Field to retrieve
+ * @param $filter
+ *   Whether to filter out types without value
+ * @param $default
+ *   Default value to return if no value
+ */
+function messaging_array_list($data, $field, $filter = TRUE, $default = NULL) {
+  $return = array();
+  foreach ($data as $type => $info) {
+    if (isset($info[$field])) {
+      $return[$type] =  ? $info[$field];
+    }
+    elseif (!$filter) {
+      $return[$type] = $default;
+    }
+  }
+  return $return;  
 }
 
 /**
@@ -1113,7 +1145,7 @@ function messaging_locale_refresh() {
  * Set data on static cache, checking whether the cache is under limits.
  */
 function messaging_static_cache_set($cache_name, $key, $value) {
-  $cache = &messaging_static($cache_name);
+  $cache = &drupal_static($cache_name);
   if ($cache && MESSAGING_CACHE_LIMIT && count($cache) > MESSAGING_CACHE_LIMIT) {
     $cache = array();
   }
@@ -1123,59 +1155,9 @@ function messaging_static_cache_set($cache_name, $key, $value) {
  * Get data from static cache
  */
 function messaging_static_cache_get($cache_name, $key) {
-  $cache = &messaging_static($cache_name);
+  $cache = &drupal_static($cache_name);
   return isset($cache[$key]) ? $cache[$key] : NULL;
 }
-
-/**
- * Central static variable storage, Drupal 7 core backport
- * 
- * See http://api.drupal.org/api/function/drupal_static/7
- */
-function &messaging_static($name, $default_value = NULL, $reset = FALSE) {
-  static $data = array(), $default = array();
-  if (!isset($name)) {
-    // All variables are reset. This needs to be done one at a time so that
-    // references returned by earlier invocations of drupal_static() also get
-    // reset.
-    foreach ($default as $name => $value) {
-      $data[$name] = $value;
-    }
-    // As the function returns a reference, the return should always be a
-    // variable.
-    return $data;
-  }
-  if ($reset) {
-    // The reset means the default is loaded.
-    if (array_key_exists($name, $default)) {
-      $data[$name] = $default[$name];
-    }
-    else {
-      // Reset was called before a default is set and yet a variable must be
-      // returned.
-      return $data;
-    }
-  }
-  elseif (!array_key_exists($name, $data)) {
-    // Store the default value internally and also copy it to the reference to
-    // be returned.
-    $default[$name] = $data[$name] = $default_value;
-  }
-  return $data[$name];
-}
-
-/**
- * Reset static variable. Drupal 7 core backport.
- * 
- * See http://api.drupal.org/api/function/drupal_static_reset/7
- * 
- * @param $name
- *   Name of the static variable to reset. Omit to reset all variables.
- */
-function messaging_static_reset($name = NULL) {
-  messaging_static($name, NULL, TRUE);
-}
-
 
 /**
  * Load destination from key. Menu autoloading.
@@ -1198,7 +1180,7 @@ function messaging_include($file, $module = 'messaging') {
 }
 
 /**
- * Invoke hook_notifications($name) on all modules
+ * Invoke hook_messaging($name) on all modules
  * 
  * This is like module_invoke all with some differences:
  * - The results are just merged (not recursively)
@@ -1206,54 +1188,15 @@ function messaging_include($file, $module = 'messaging') {
  * - We cache all the results 
  */
 function &messaging_info($name, $param = NULL, $refresh = FALSE, $alter = TRUE) {
-  $info = &messaging_static('messaging_info_' . $name);
+  $info = &drupal_static('messaging_info_' . $name);
   if (!isset($info) || $refresh) {
-    $info = messaging_module_invoke_all('messaging', $name, $param);
+    $info = module_invoke_all('messaging', $name, $param);
     // Provide alter hook
     if ($alter) {
       drupal_alter('messaging_' . strtr($name, ' ', '_'), $info);
     }
   }      
   return $info;
-}
-
-/**
- * Invoke hook on all modules
- * 
- * This is like module_invoke_all with some differences:
- * - The results are just merged (not recursively)
- * - The module name is added to each resulting array
- * 
- * @param $hook
- *   The name of the hook to invoke.
- * @param ...
- *   Arguments to pass to the hook.
- * @return
- *   An array of return values of the hook implementations. If modules return
- *   arrays from their implementations, those are merged into one array.
- */
-function messaging_module_invoke_all() {
-  $args = func_get_args();
-  $hook = $args[0];
-  unset($args[0]);
-  $return = array();
-  foreach (module_implements($hook) as $module) {
-    $function = $module .'_'. $hook;
-    $result = call_user_func_array($function, $args);
-    if (isset($result) && is_array($result)) {
-      foreach ($result as $key => &$value) {
-        if (is_array($value)) {
-          $value += array('module' => $module);
-        }        
-      }
-      $return = array_merge($return, $result);
-    }
-    else if (isset($result)) {
-      $return[] = $result;
-    }
-  }
-
-  return $return;
 }
 
 /**
@@ -1267,7 +1210,7 @@ function messaging_user_uid($account) {
  * Helper function, get object from account parameter (object or uid)
  */
 function messaging_user_object($account) {
-  return is_object($account) ? $account : messaging_load_user((int)$account);
+  return is_object($account) ? $account : user_load((int)$account);
 }
 
 /**
@@ -1282,5 +1225,5 @@ function messaging_user_property($account, $property) {
  */
 function messaging_user_format_name($account, $html = FALSE) {
   $account = messaging_user_object($account);
-  return $html ? theme('username', $account) : check_plain($account->name);
+  return $html ? theme('username', array('account' =>$account)) : check_plain($account->name);
 }

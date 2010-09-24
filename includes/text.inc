@@ -233,7 +233,7 @@ function messaging_text_truncate($text, $length) {
  * @param $format
  */
 function messaging_text_check_markup($text, $format = FILTER_FORMAT_DEFAULT) {
-  $cache = &messaging_static(__FUNCTION__);
+  $cache = &drupal_static(__FUNCTION__);
   // When $check = TRUE, do an access check on $format.
   if (isset($text)) {
     $format = filter_resolve_format($format);

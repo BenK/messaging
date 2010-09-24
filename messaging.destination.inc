@@ -8,11 +8,7 @@
 /**
  * Message destination class
  */
-class Messaging_Destination extends Messaging_Cached_Object {
-  // Database properties
-  const DB_TABLE = 'messaging_destination';
-  const DB_KEY = 'mdid';
-
+class Messaging_Destination extends Messaging_Object {
   // Destination status
   const STATUS_PENDING = 0;
   const STATUS_ACTIVE = 1;
@@ -21,7 +17,7 @@ class Messaging_Destination extends Messaging_Cached_Object {
   public $mdid = 0;
   // Destination type
   public $type;
-  // User id. Public parent protected variable
+  // User id.
   public $uid;
   // Address for this sending method
   public $address;
@@ -29,60 +25,74 @@ class Messaging_Destination extends Messaging_Cached_Object {
   public $sent = 0;
   // Status
   public $status = 0;
-  
+
   /**
-   * Constructor
+   * Get name for display
    */
-  function __construct($template = NULL) {
-    parent::__construct($template);
+  function get_name() {
+    return $this->address_info('name', $this->address_name());
+  }
+  /**
+   * Get default address name
+   */
+  function address_name() {
+    return t('Destination');
+  }
+
+  /**
+   * Get address for sending
+   */
+  function get_address() {
+    return $this->address;
+  }
+  /**
+   * Set user for this destination
+   */
+  function set_user($user) {
+    $this->uid = $user->uid;
+    if (!isset($this->address)) {
+      $this->address = $this->user2address($user);
+    }
+    return $this;
   }
 
   /**
    * Get from db using conditions
    */
   public static function get($params) {
-    if ($object = db_fetch_object(self::db_query("SELECT *", $params))) {
-      $dest = self::build($object);
-      $dest->cache_save();
-      return $dest;
-    }
-    else {
-      return FALSE;
-    }
+    $dest = self::load_multiple(array(), $params);
+    return reset($dest);
   }
 
   /**
-   * Build destination with partial parameters
-   * 
-   * @param $template
-   *   Object template or address type
+   * Build destination from db object
    */
-  public static function build($template) {
-    if (is_array($template)) {
-      $type = NULL;
-      $template = (object)$template;
-    }
-    if (is_object($template)) {
-      $object = $template;
-      $type = $template->type;
-    }
-    else {
-      $type = $template;
-      $object = array('type' => $type);
-    }
-    // The type may define its own class
-    if ($type && ($class = messaging_address_info($type, 'destination_class'))) {
-      return new $class($object);
-    }
-    else {
-      return new Messaging_Destination($object);
-    }    
+  public static function build_object($template) {
+    $class = messaging_address_type($template->type, 'class', 'Messaging_Destination');
+    return new $class($template);  
+  }
+  /**
+   * Build from address
+   */
+  public static function build_address($type, $address) {
+    $class = messaging_address_type($type, 'class', 'Messaging_Destination');
+    $destination = new $class();
+    $destination->type = $type;
+    $destination->address = $address;
+    return $destination;
   }
   /**
    * Load object from database
    */
-  public static function load($key) {
-    return self::object_load(self::DB_TABLE, self::DB_KEY, $key, 'Messaging_Destination');
+  public static function load($mdid) {
+    $dest = entity_load('messaging_destination', array($mdid));
+    return $dest ? $dest[$mdid] : FALSE;
+  }
+  /**
+   * Load multiple events
+   */
+  public static function load_multiple($mdids = array(), $conditions = array()) {
+    return entity_load('messaging_destination', $mdids, $conditions);
   }
 
   /**
@@ -144,28 +154,14 @@ class Messaging_Destination extends Messaging_Cached_Object {
   /**
    * Validate address format
    */
-  public static function validate_address($type, $address) {
-    if (empty($address)) {
-      // So far, no method takes an address that evaluates to zero
-      return FALSE;
-    }
-    elseif ($callback = messaging_address_info($type, 'validate callback')) {
-      return call_user_func($callback, $address);
-    }
-    else {
-      return TRUE;
-    }
+  public static function validate_address($address) {
+    return !empty($address);
   }
   /**
    * Map address to uid
    */
   public static function address2uid($type, $address) {
-    if ($type == 'user') {
-      return (int)$address;
-    }
-    elseif ($function = messaging_address_info($type, 'address2uid callback')) {
-      return $function($address);
-    }    
+    return 0;
   }
   
   /**
@@ -236,35 +232,23 @@ class Messaging_Destination extends Messaging_Cached_Object {
   /**
    * Get address type information
    */
-  function address_info($property = NULL) {
+  function address_info($property = NULL, $default = NULL) {
     if (!empty($this->type)) {
-      return messaging_address_info($this->type, $property);
+      return messaging_address_info($this->type, $property, $default);
     }
-  }
-  /**
-   * Get address name
-   */
-  function address_name() {
-    return $this->address_info('name');
   }
 
   /**
    * Format address
    */
   function format_address($html = FALSE) {
-    if ($callback = $this->address_info('format callback')) {
-      $address = $callback($this->address, $html);
-      return $address ? $address : t('Unknown');
-    }
-    else {
-      return check_plain($this->address);
-    }
+    return check_plain($this->address);
   }
   /**
    * Get user account
    */
-  function get_account() {
-    return $this->get_user();
+  function get_user() {
+    return isset($this->uid) ? messaging_user_object($this->uid) : NULL;
   }
   /**
    * Delete from db and cache
@@ -280,26 +264,11 @@ class Messaging_Destination extends Messaging_Cached_Object {
   public function __toString() {
     return 'Destination: ' . $this->index();
   }
-  /**
-   * Db query for destinations table
-   */
-  protected static function db_query($sql, $params) {
-    $query = _messaging_query_conditions('messaging_destination', $params);
-    return db_query($sql . ' FROM {messaging_destination} WHERE ' . $query['where'], $query['args']);
-  }
-  // Get table name for storage
-  public static function db_table() {
-    return self::DB_TABLE;
-  }
-  // Get key field name for storage
-  public static function db_key() {
-    return self::DB_KEY;
-  }
+
   /**
    * Save object to cache
    */
   public function cache_save() {
-    parent::cache_save();
     $this->cache_by_address($this->type, $this->address, $this);
   }
   /**
@@ -309,13 +278,15 @@ class Messaging_Destination extends Messaging_Cached_Object {
     parent::cache_delete();
     $this->cache_by_address($this->type, $this->address, FALSE);
   }
-  // Store into cache
+  // Store into address cache
   public static function cache_set($key, $object) {
-    return self::object_cache_set('Messaging_Destination', $key, $object);
+    $cache = &drupal_static('messaging_destination_address');
+    return $cache[$key] = $object;
   }
-  // Get from cache
+  // Get from address cache
   public static function cache_get($key) {
-    return self::object_cache_get('Messaging_Destination', $key);
+    $cache = &drupal_static('messaging_destination_address');
+    return isset($cache[$key]) ? $cache[$key] : NULL;
   }
   /**
    * Cache get/set by method and address
@@ -327,5 +298,69 @@ class Messaging_Destination extends Messaging_Cached_Object {
     else {
       return self::cache_get("$type:$address");
     }
+  }
+  /**
+   * Get user from address
+   */
+  static function address2user($address) {
+    return NULL;
+  }
+  /**
+   * Get address from user
+   */
+  static function user2address($user) {
+    return NULL;
+  }
+
+}
+
+/**
+ * Destination is a system user
+ */
+class Messaging_User_Destination extends Messaging_Destination {
+  public $address = '';
+  /**
+   * Get name for display
+   */
+  function address_name() { 
+    return t('User');
+  }
+  /**
+   * Format address
+   */
+  function format_address($html = FALSE) {
+    if ($user = $this->get_user()) {
+      return $html ? theme('username', array('account' => $user)) : check_plain($user->name);
+    }
+  }
+  /**
+   * Get address for sending
+   */
+  function get_address() {
+    return $this->get_user();
+  }
+  /**
+   * Set user for this destination
+   */
+  function set_user($user) {
+    $this->uid = $user->uid;
+  }
+  /**
+   * Get user from address
+   */
+  static function address2user($address) {
+    return $address;
+  }
+  /**
+   * Get address from user
+   */
+  static function user2address($user) {
+    return $user;
+  }
+  /**
+   * Check address is valid
+   */
+  static function validate_address($address) {
+    return is_object($address) ? !empty($address->uid);
   }
 }

@@ -78,5 +78,5 @@ function messaging_sms_send_msg($destination, $message, $params = array()) {
  * Implementation of hook_disable()
  */
 function messaging_sms_disable() {
-  messaging_method_disable('sms');
+  Messaging_Method::method_disable('sms');
 }

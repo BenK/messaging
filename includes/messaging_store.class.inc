@@ -470,13 +470,13 @@ class Messaging_Store {
    * Save message to static cache
    */
   protected static function cache_set($key, $value) {
-    messaging_static_cache_set('messaging_store', $key, $value);
+    drupal_static_cache_set('messaging_store', $key, $value);
   }
   /**
    * Get message from static cache
    */
   protected static function cache_get($key) {
-    return messaging_static_cache_get('messaging_store', $key);
+    return drupal_static_cache_get('messaging_store', $key);
   }
   
   /**

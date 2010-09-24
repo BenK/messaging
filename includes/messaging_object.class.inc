@@ -56,7 +56,7 @@ abstract class Messaging_User_Object {
    */
   public function get_user() {
     if (!isset($this->_user) && isset($this->uid)) {
-      $this->_user = messaging_load_user($this->uid);
+      $this->_user = user_load($this->uid);
     }
     return isset($this->_user) ? $this->_user : NULL;
   }
@@ -327,13 +327,13 @@ abstract class Messaging_Cached_Object extends Messaging_Object {
    * Set value into static cache
    */
   protected static function object_cache_set($class_name, $key, $value) {
-    return messaging_static_cache_set($class_name, $key, $value);
+    return drupal_static_cache_set($class_name, $key, $value);
   }
   /**
    * Get value from static cache
    */
   protected static function object_cache_get($class_name, $key) {
-    return messaging_static_cache_get($class_name, $key);
+    return drupal_static_cache_get($class_name, $key);
   }
   
   abstract public static function cache_set($key, $object);

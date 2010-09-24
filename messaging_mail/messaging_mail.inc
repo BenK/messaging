@@ -181,3 +181,34 @@ class Messaging_Method_Mail extends Messaging_Send_Method {
   }
   
 }
+
+/**
+ * Mail addresses
+ */
+class Messaging_Mail_Address extends Messaging_Destination {
+  public $type = 'mail';
+  /**
+   * Get name for display
+   */
+  function address_name() {
+    return t('E-mail address');
+  }
+  /**
+   * Get user from address
+   */
+  static function address2user($mail) {
+    return user_load_by_mail($mail);
+  }
+  /**
+   * Get address from user
+   */
+  static function user2address($user) {
+    if ($user = messaging_user_object($user)) {
+      return !empty($user->mail) ? $user->mail : NULL;
+    }
+  }
+
+  static function validate_address($address) {
+    return valid_email_address($address);
+  }
+}

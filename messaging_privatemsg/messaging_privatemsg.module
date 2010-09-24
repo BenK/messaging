@@ -67,5 +67,5 @@ function messaging_privatemsg_send_msg($destination, $message) {
  * Implementation of hook_disable()
  */
 function messaging_privatemsg_disable() {
-  messaging_method_disable('privatemsg');
+  Messaging_Method::method_disable('privatemsg');
 }

@@ -156,7 +156,7 @@ function messaging_template_build($template, $send_method, $language, $objects =
  *   Assembled text of a message part.
  */
 function messaging_template_message_part($group, $key, $method, $language, $getdefault = TRUE) {
-  $cache = &messaging_static(__FUNCTION__);
+  $cache = &drupal_static(__FUNCTION__);
   $langcode = $language->language;
   if (!isset($cache[$langcode][$group][$method])) {
     $cache[$langcode][$group][$method] = _messaging_template_message_part($group, $method, $language);
@@ -231,7 +231,7 @@ function messaging_template_text_part($group, $key, $method, $language) {
  *   
  */
 function messaging_template_type_info($type = NULL, $property = NULL) {
-  $info = &messaging_static(__FUNCTION__);
+  $info = &drupal_static(__FUNCTION__);
   if (!isset($info)) {
     $info = module_invoke_all('messaging', 'message groups');
   }
@@ -271,7 +271,7 @@ function messaging_template_language_fallback($language) {
  *   Language to localize defaults
  */
 function messaging_template_message_defaults($group, $language) {
-  $info = &messaging_static(__FUNCTION__);
+  $info = &drupal_static(__FUNCTION__);
   if (!isset($info[$language->language][$group])) {
     $info[$language->language][$group] = module_invoke_all('messaging', 'messages', $group, $language);
   }

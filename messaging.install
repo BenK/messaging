@@ -6,6 +6,57 @@
 */
 function messaging_schema() {
   $schema['messaging_store'] = array(
+    'description' => 'Stores and queues messages.',
+    'fields' => array(
+      'msid' => array(
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Primary Key: Unique item ID.',
+      ),
+      'name' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'The queue name.',
+      ),
+      'data' => array(
+        'type' => 'blob',
+        'not null' => FALSE,
+        'size' => 'big',
+        'serialize' => TRUE,
+        'description' => 'The arbitrary data for the item.',
+      ),
+      'expire' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Timestamp when the claim lease expires on the item.',
+      ),
+      'created' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Timestamp when the item was created.',
+      ),
+      'method' => array(
+        'type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => '',
+        'description' => 'Messaging send method key.',
+      ),
+      'language' => array(
+        'type' => 'varchar', 'length' => 12, 'not null' => TRUE, 'default' => '',
+        'description' => 'Language code.',
+      ),
+    ),
+    'primary key' => array('msid'),
+    'indexes' => array(
+      'name_created' => array('name', 'created'),
+      'expire' => array('expire'),
+    ),
+  );
+/*
+  $schema['messaging_store'] = array(
     'description' => 'Stores queued messages to be sent or sent messages as logs.',
     'fields' => array(
       'mqid'    => array(      
@@ -80,7 +131,7 @@ function messaging_schema() {
       'log' => array('log'),
     ),
   );
-
+*/
   $schema['messaging_destination'] = array(
     'description' => 'Stores message destination for users and non users.',
     'fields' => array(

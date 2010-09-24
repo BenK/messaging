@@ -604,7 +604,7 @@ class Messaging_Message extends Messaging_User_Object {
    */
   function get_sender() {
     if (!isset($this->_sender)) {
-      $sender = !empty($this->sender) ? messaging_load_user($this->sender) : NULL;
+      $sender = !empty($this->sender) ? user_load($this->sender) : NULL;
       $this->_sender = $sender ? $sender : FALSE;
     }
     return $this->_sender;

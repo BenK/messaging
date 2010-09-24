@@ -279,5 +279,5 @@ function theme_messaging_phpmailer($mail) {
  * Implementation of hook_disable()
  */
 function messaging_phpmailer_disable() {
-  messaging_method_disable('phpmailer');
+  Messaging_Method::method_disable('phpmailer');
 }
