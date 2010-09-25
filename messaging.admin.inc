@@ -116,7 +116,7 @@ function messaging_admin_test_post_form() {
   $form['method'] = array(
     '#title' => t('Send method'),
     '#type' => 'select',
-    '#options' => messaging_method_list(),
+    '#options' => messaging_method_info(NULL, 'title'),
     '#default_value' => messaging_method_default(),
   );
   $form['to'] = array(
@@ -170,8 +170,8 @@ function messaging_admin_test_post_form_submit($form, $form_state) {
   $send_method = messaging_send_method($method);
   
   if ($account = user_load(array('name' => $destination))) {
-    $vars['!name'] = theme('username', $account);
-    if ($address = $send_method->get_user_address($account)) {
+    $vars['!name'] = theme('username', array('account' => $account));
+    if ($address = $send_method->user_destination($account)) {
       drupal_set_message(t('Found address @address for user !name', array('@address' => $address) + $vars));
       $result = messaging_message_send_user($account, $message, $method);
     }
@@ -226,7 +226,7 @@ function messaging_admin_method_filters() {
   $form['filter_info'] = array(
     '#title' => t('Available filters'),
     '#type' => 'item',
-    '#value' => theme('table', array(), $filter_info),
+    '#value' => theme('table', array('rows' => $filter_info)),
   );
   // Sending methods settings
   if ($info = messaging_method_info()) {

@@ -166,7 +166,7 @@ class Messaging_Send_Method extends Messaging_Method {
     foreach ($message->get_destinations() as $key => $destination) {
       $results[$key] = $this->send_destination($destination, $message);
     }
-    $message->set_resuts($results);
+    $message->add_results($results);
     return (boolean)array_filter($results);
   }
   
@@ -207,22 +207,13 @@ class Messaging_Send_Method extends Messaging_Method {
     
   }
   /**
-   * Get address for user account
+   * Get destination for user account
    * 
    * @param $account
    *   User account object or uid
    */
-  function get_user_address($account) {
-    // The method may have its own destination callback. If not, default to address type,
-    if ($function = $this->get_info('destination callback')) {
-      return $function(messaging_user_object($account));
-    }
-    elseif ($function = $this->get_address_info('user2address callback')) {
-      return $function($account);
-    }
-    elseif ($property = $this->get_address_info('account_property')) {        
-      return messaging_user_property($account, $property);
-    }
+  function user_destination($account) {
+    return Messaging_Destination::build_user($this->address_type, $account);
   }
 
   /**

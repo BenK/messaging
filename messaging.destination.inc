@@ -68,18 +68,28 @@ class Messaging_Destination extends Messaging_Object {
    * Build destination from db object
    */
   public static function build_object($template) {
-    $class = messaging_address_type($template->type, 'class', 'Messaging_Destination');
+    $class = messaging_address_info($template->type, 'class', 'Messaging_Destination');
     return new $class($template);  
   }
   /**
    * Build from address
    */
   public static function build_address($type, $address) {
-    $class = messaging_address_type($type, 'class', 'Messaging_Destination');
+    $class = messaging_address_info($type, 'class', 'Messaging_Destination');
     $destination = new $class();
     $destination->type = $type;
     $destination->address = $address;
     return $destination;
+  }
+  /**
+   * Build from user account
+   */
+  public static function build_user($type, $user) {
+    $class = messaging_address_info($type, 'class', 'Messaging_Destination');
+    $destination = new $class();
+    $destination->type = $type;
+    $destination->set_user($user);
+    return $destination;  
   }
   /**
    * Load object from database

@@ -91,7 +91,46 @@ class Messaging_Message {
       $this->destination[$dest->index()] = $dest;
     }
   }
-
+  /**
+   * Get destinations for sending
+   * @todo Return only the ones not sent
+   */
+  function get_destinations() {
+    return $this->destination;
+  }
+  /**
+   * Set user, try to find suitable method
+   */
+  function set_user($account) {
+    if (empty($this->method)) {
+      $this->method = messaging_method_default($account);
+    }
+    if (!empty($this->method)) {
+      return $this->add_user($account);
+    }
+  }
+  /**
+   * Add user as a destination
+   * 
+   * A destination will be searched for user account
+   */
+  function add_user($account) {
+    if ($destination = $this->send_method()->user_destination($account)) {
+      $this->add_destination($destination);
+      return TRUE;
+    }
+    else {
+      return FALSE;
+    }
+  }
+  
+  /**
+   * Check we have a sending method and a destination
+   */
+  function check_destination() {
+    return !empty($this->method) && !empty($this->destination);
+  }
+  
   /**
    * Set full array of destinations
    */
@@ -154,7 +193,6 @@ class Messaging_Message {
   public function prepare() {
     if (empty($this->prepared)) {
       if ($this->build()) {
-        $this->set_destination();
         // Prepare invoking one or more sending methods
         $this->prepared = $this->process_method('message_prepare');
         messaging_debug("Prepared for send method.");
@@ -165,7 +203,7 @@ class Messaging_Message {
         $this->message_log("Failed message build.");
       }
     }
-    return $this->prepared;
+    return $this->prepared && $this->check_destination();
   }
   
   /**
@@ -342,35 +380,15 @@ class Messaging_Message {
       $this->log();
     }
   }
-  /**
-   * Set error condition and stop processing
-   * 
-   * @param $text
-   *   Error message to be stored
-   */
-  function set_error($text = 'ERROR', $code = 1) {
-    // This will stop processing if we are in the middle of anything
-    $this->process = FALSE;
-    $this->success = FALSE;
-    $this->error = $code;
-    $this->error_msg = $text;
-    $this->message_log('Error processing message.');
-    // By default, messages are set to be logged when errors happen
-    if ($this->log_error) {
-      $this->log = 1;
-      $this->updated = TRUE;
-    }
-    elseif (!$this->log) {
-      // Not for logging, discard
-      $this->discard = TRUE;
-    }
-  }   
+
   /**
    * Delete message from logs and store
    */
   public function delete() {
     if ($this->msid) {
-      db_delete('messaging_message')->condition('msid' => $this->msid);
+      db_delete('messaging_message')
+        ->condition('msid', $this->msid)
+        ->execute();
       if (!empty($this->store) && ($store = messaging_store($this->store))) {
         $store->message_delete($this);
       }
@@ -416,5 +434,11 @@ class Messaging_Message {
    */
   public static function load_multiple($msids = array(), $conditions = array()) {
     return entity_load('messaging_message', $msids, $conditions);
+  }
+  /**
+   * Invoke hook_messaging_message() on all modules
+   */
+  protected function module_invoke($op) {
+    return module_invoke_all('messaging_message', $op, $this);
   }
 }

@@ -364,7 +364,7 @@ function messaging_message_send_user($account, $message, $method = NULL, $queue 
     return $queue ? $message->queue() : $message->send();
   }
   else {
-    watchdog('messaging', 'Cannot send message to user !username. @message', array('!username' => theme('username', $account), '@message' => (string)$message), WATCHDOG_WARNING);
+    watchdog('messaging', 'Cannot send message to user !username. @message', array('!username' => theme('username', array('account' => $account)), '@message' => (string)$message), WATCHDOG_WARNING);
     return FALSE;  
   }
 }
@@ -418,10 +418,9 @@ function messaging_account_build_destination($account, $method = NULL, $address 
 /**
  * Get destination from user account.
  * 
- * This will handle also anonymous user accounts that should have a 'destination' property
  */
-function messaging_user_destination($account, $method, $message = NULL) {
-  return messaging_send_method($method)->get_user_address($account);
+function messaging_user_destination($account, $method) {
+  return messaging_send_method($method)->user_destination($account);
 }
 
 /**
@@ -1032,7 +1031,8 @@ function messaging_log_format($logs) {
       $text,
     );
   }
-  return theme('table', array(t('Type'), t('Message')), $rows);  
+  $header = array(t('Type'), t('Message'));
+  return theme('table', array('header' => $header, 'rows' =>$rows));  
 }
 
 /**
@@ -1078,7 +1078,7 @@ function _messaging_log_format($log) {
             $replace[$key] = check_plain($value);
             break;
           case '%':
-            $replace[$key] = theme('placeholder', $value);
+            $replace[$key] = drupal_placeholder($value);
             break;
           case '!':
             // Pass-through.
@@ -1215,5 +1215,5 @@ function messaging_user_property($account, $property) {
  */
 function messaging_user_format_name($account, $html = FALSE) {
   $account = messaging_user_object($account);
-  return $html ? theme('username', array('account' =>$account)) : check_plain($account->name);
+  return $html ? theme('username', array('account' => $account)) : check_plain($account->name);
 }
