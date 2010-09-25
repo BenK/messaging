@@ -171,9 +171,9 @@ function messaging_admin_test_post_form_submit($form, $form_state) {
   
   if ($account = user_load(array('name' => $destination))) {
     $vars['!name'] = theme('username', array('account' => $account));
-    if ($address = $send_method->user_destination($account)) {
+    if ($message->set_user($account)) {
       drupal_set_message(t('Found address @address for user !name', array('@address' => $address) + $vars));
-      $result = messaging_message_send_user($account, $message, $method);
+      $result = $message->send();
     }
     else {
       drupal_set_message(t('Cannot find a valid address for user !name', $vars), 'error');
@@ -181,7 +181,8 @@ function messaging_admin_test_post_form_submit($form, $form_state) {
     
   } elseif ($send_method->address_validate($destination)) {
     drupal_set_message(t('Sending message to address: @address', array('@address' => $destination)));
-    $result = messaging_message_send(array($destination), $message, $method);
+    $message->add_destination($destination);
+    $result = $message->send();
   }
   else {
     drupal_set_message(t('The destination is not a user name nor a valid address.'), 'error');

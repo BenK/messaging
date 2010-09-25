@@ -121,7 +121,9 @@ class Messaging_Send_Method extends Messaging_Method {
    public $anonymous = FALSE;
    // Qeueue messages instead of sending
    public $queue = FALSE;
-
+   // Whether we want all messages logged for this method
+   public $log = FALSE;
+   
    public static function address_type() {
      return 'user';
    }
@@ -131,9 +133,11 @@ class Messaging_Send_Method extends Messaging_Method {
    * At this stage, the message can be still redirected through other sending method, or marked for discard
    */
   function message_prepare($message) {
-    if (empty($message->priority) && $this->queue) {
+    // Set queueing if not message priority
+    if ($this->queue && $message->priority <= 0) {
       $message->queue = 1;
     }
+    $message->log = $message->log || $this->log;
     if (is_array($message->text['subject'])) {
       $message->text['subject'] += array('#theme' => 'message_subject');
     }
@@ -201,7 +205,7 @@ class Messaging_Send_Method extends Messaging_Method {
    *   User account object or uid
    */
   function user_destination($account) {
-    return Messaging_Destination::build_user($this->address, $account);
+    return Messaging_Destination::build_user(self::address_type(), $account);
   }
 
   /**

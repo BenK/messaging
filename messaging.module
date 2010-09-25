@@ -280,121 +280,6 @@ function messaging_message_build($message) {
 }
 
 /**
- * Send message to array of destinations. The message is rendered just once.
- *
- * @param $destinations
- *   Single destination or array of destinations for sending.
- *   The element type depends on sending method so it can be a list of e-mail addresses, user accounts, etc
- * @param $message
- *   Message object or array of message parts.
- * @param $method
- *   Sending method. Unlike for messaging_message_send_user() for which the sending method may be user's default
- *   it is not an optional parameter for this function.
- * @param $queue
- *   Optional flag to force queueing.
- *   We may want to force queueing for bulk messaging. Otherwise it will depend on the sending method
- *   wether to queue the messages (for pull methods) or not (push methods)
- */
-function messaging_message_send($destinations, $message, $method, $queue = FALSE) {
-  messaging_debug('Sending message', array('destinations' => $destinations, 'message' => $message, 'method' => $method, 'queue' => $queue));
-  
-  // Convert into an object and add all the information into the message object
-  $message = messaging_message_build($message);
-  $message->method = $method;
-  if (is_array($destinations)) {
-    $message->set_multiple($destinations);
-  }
-  else {
-    $message->set_destination($destinations);
-  }
-  // This will return true if the message was sent or queued for delivery
-  return $queue ? $message->queue() : $message->send();
-}
-
-/**
- * Send message to destination object
- *
- * @param $destination
- *   Messaging Destination object to recieve message.
- * @param $message
- *   Message object or array of message parts.
- * @param $queue
- *   Optional send method. Defaults to the user account predefined method
- */
-function messaging_message_send_destination($method, $destination, $message, $queue = FALSE) {
-  messaging_debug('Sending message to destination', array('destination' => $destination, 'message' => $message));
-  // Build array of parameters so they can be overridden by callbacks
-  $message = messaging_message_build($message);
-  $message->method = $method;
-  $message->set_destination($destination);
-  return $queue ? $message->queue() : $message->send();
-}
-
-/**
- * Send message to user represented by account
- *
- * We are applying same output filter for everybody, depending on send method
- *
- * The final rendering of the message depends on send method too. I.e. a mail messaging
- * method may want to insert '--' before the body footer.
- *
- * @ TODO Consider whether it makes sense to allow users decide on formatting
- *
- * @param $account
- *   User object to recieve message.
- * @param $message
- *   Array of message parts that will be compiled depending on send method.
- *   Mandatory message parts, which may have nexted parts are:
- *   - 'type'
- *   - 'subject'
- *   - 'body'. The message body may have 'header', 'content', 'footer', 'etc'
- * @param $method
- *   Optional send method. Defaults to the user account predefined method
- */
-function messaging_message_send_user($account, $message, $method = NULL, $queue = FALSE) {
-  messaging_debug('Sending message to user', array('account' => $account, 'message' => $message, 'method' => $method));
-  // Build array of parameters so they can be overridden by callbacks
-  $message = messaging_message_build($message);
-  if (isset($method)) {
-    $message->method = $method;
-  }
-  // Check user and availability if there's a callback for that. Depending on the sending method,
-  // when user is not available it may just be discarded / queued / redirected through other method
-  if ($message->set_user($account)) {
-    messaging_debug('Found destination for user, sending message', array('method' => $message->method, 'destination' => $message->destination));
-    return $queue ? $message->queue() : $message->send();
-  }
-  else {
-    watchdog('messaging', 'Cannot send message to user !username. @message', array('!username' => theme('username', array('account' => $account)), '@message' => (string)$message), WATCHDOG_WARNING);
-    return FALSE;  
-  }
-}
-
-/**
- * Send message to multiple users. For each user it will use the preferred method
- * 
- * @param $users
- *   User id, array of user ids, user account or array of user accounts
- * @param $message
- *   Message object to use as template or array with 'subject' and 'body' texts
- *   
- * @return array
- *   Array with sending result, indexed by user id
- */
-function messaging_message_bulk_send($users, $message, $queue = FALSE) {
-  // Convert users to array of user account objects
-  $users = is_array($users) ? $users : array($users);
-  $users = array_map('messaging_user_object', $users);
-  $template = messaging_message_build($message);
-  $results = array();
-  foreach ($users as $account) {
-    $message = clone $template;
-    $results[$account->uid] = messaging_message_send_user($account, $message, NULL, $queue);
-  }
-  return $results;
-}
-
-/**
  * Build destination object from user account (and create destination if not exists)
  */
 function messaging_account_build_destination($account, $method = NULL, $address = NULL) {
@@ -648,53 +533,6 @@ function messaging_message_in($method, $channel, $message, $params = array()) {
 }
 
 /**
- * Build callback structure to be invoked later
- * 
- * A callback structure will be an array containing the function name to invoke
- * and a list of arguments for that function
- * 
- * @param $function
- *   Function name 
- * @param $arg1, $arg1, $arg3
- */
-function _messaging_callback() {
-  $args = func_get_args();
-  if (count($args) > 1) {
-    // Array with function name, param1, param2..
-    return $args;
-  } else {
-    // Simple string with function name
-    return array_shift($args);
-  }
-}
-
-/**
- * Invoke callback with variable arguments
- * 
- * We don't check whether the function exists so it will crash if it's missing
- * 
- * @param $callback
- *   Function name or array(function, arg1, arg2..)
- * @param $arg1, $arg2...
- *   Variable number of arguments
- */
-function _messaging_callback_invoke() {
-  $args = func_get_args();
-  $callback = array_shift($args);
-  
-  if (is_array($callback)) { // It is an array: function, arg1, arg2...
-    $function = array_shift($callback);
-    $params = $callback;
-  } else { // It is just a function name
-    $function = $callback;
-    $params = array();
-  }
-  // Merge parameters and go for it
-  $params = array_merge($params, $args);
-  return call_user_func_array($function, $params);
-}
-
-/**
  * Check that a parameter is an instance of a given class
  */
 function messaging_check_object($object, $class, $create = FALSE) {
@@ -771,43 +609,6 @@ function messaging_theme() {
 }
 
 /**
- * Add a callback to a callback collection
- * 
- * @param $callback_list
- *   Existing callback list or method info array
- * @param $type
- *   Callback type
- * @param $callback
- *   Callback function name or array('function_name', arg1, arg2...) *   
- */
-function _messaging_callback_add(&$callback_list, $type, $callback) {
-  $name = $type . ' callback';
-  // If the existing callback is a single function name, make it an array
-  if (!empty($callback_list[$name]) && !is_array($callback_list[$name])) {
-    $callback_list[$name] = array($callback_list[$name]);
-  }
-  $callback_list[$name][] = $callback;  
-}
-
-/**
- * Get a callback from the information array if present
- * 
- * @param $info
- *   Information array, typically a messaging method info array
- * @param $type
- *   Callback type, the search key will be '[type] callback'
- * @param $default
- *   Default callback to return if not in the $info array
- */
-function _messaging_callback_get($info, $type, $default = NULL) {
-  if (!empty($info[$type . ' callback'])) {
-    return $info[$type . ' callback'];
-  } else {
-    return $default;
-  }
-}
-
-/**
  * Get information from an array of data
  * 
  * @param $data
@@ -855,126 +656,6 @@ function messaging_array_list($data, $field, $filter = TRUE, $default = NULL) {
     }
   }
   return $return;  
-}
-
-/**
- * Helper function for query builders.
- * 
- * Using schema data get 'field = [placeholder]' and args arrays
- * 
- * @param $table
- *   Table name (to be prefixed)
- * @param $params
- *   Array of field => value conditions
- * @param $table_alias
- *   Optional table alias to prefix fields in conditions
- */
-function _messaging_query_conditions($table, $params, $table_alias = NULL) {
- $query = _messaging_query_where($table, $params, $table_alias);
- // Return arrwy with conditions and arguments. Also full where clause.
- return array('conditions' => $query['where'], 'args' => $query['args'], 'where' => implode(' AND ', $query['where']));
-}
-
-/**
- * Query builder: Build where conditions and arguments using schema data
- * 
- * Using schema data get 'field = [placeholder]' and args arrays
- * 
- * @param $table
- *   Table name (to be prefixed)
- * @param $params
- *   Array of field => value conditions
- * @param $table_alias
- *   Optional table alias to prefix fields in conditions
- *   
- * @return array()
- *   Array with 'where' (array of where conditions) and 'args' (array of query arguments)
- */
-function _messaging_query_where($table, $params, $table_alias = NULL) {
-  $schema = drupal_get_schema($table);
-  $conditions = $args = array();
-  foreach ($params as $field => $value) {
-    // If not a field we ignore the parameter
-    if (isset($schema['fields'][$field])) {
-      $type = $schema['fields'][$field]['type'];
-      $field_name = $table_alias ? "$table_alias.$field" : $field;
-      // For array values, build IN conditions
-      if (is_array($value)) {
-        $conditions[] = $field_name . ' IN (' . db_placeholders($value, $type) . ')';
-        $args = array_merge($args, $value);
-      }
-      elseif (is_null($value)) {
-        $condtions[] = $field_name . ' IS NULL';
-      }
-      else {
-        $conditions[] = $field_name . ' = ' . db_type_placeholder($type);
-        $args[] = $value;
-      }
-    }
-  }
-  // Return arrwy with conditions and arguments. Also full where clause.
-  return array('where' => $conditions, 'args' => $args);
-}
-
-/**
- * Build the SQL statement from query elements
- * 
- * It will build INSERT + SELECT or SELECT queries from its elements
- * 
- * @param $query
- *   Array of query parameters
- * @param $execute
- *   Whether to execute the query right away or return parameters
- * @return mixed
- *   If not $execute, list($sql, $args)
- *   If execute, query result
- */
-function messaging_query_sql($query, $execute = FALSE) {
-  $sql = !empty($query['sql']) ? $query['sql'] : '';
-  if (!empty($query['insert'])) {
-    $sql .= 'INSERT INTO ' . $query['into'] . ' ('. implode(', ', $query['insert']) .') ';
-  }
-  if (!empty($query['select'])) {
-    $sql .= !empty($query['distinct']) ? 'SELECT DISTINCT ' : 'SELECT ';
-    $sql .=  implode(', ', $query['select']);
-    $sql .= ' FROM '. implode(', ', $query['from']);
-  }
-  if (!empty($query['join'])) {
-    $sql .= ' '. implode(' ', $query['join']);
-  }
-  if (!empty($query['where'])) {
-    $sql .= ' WHERE ('. implode(') AND (', $query['where']) .')';
-  }  
-  if (!empty($query['group'])) {
-    $sql .= ' GROUP BY '. implode(', ', $query['group']);
-  }
-  if (!empty($query['having'])) {
-    $sql .= ' HAVING '. implode(' AND ', $query['having']);
-  }
-  // Merge all args, start with generic ones for subscription queries, then other groups
-  $args = !empty($query['args']) ? $query['args'] : array();
-  foreach (array('select', 'join', 'where', 'having') as $key) {
-    if (!empty($query[$key .' args'])) {
-      $args = array_merge($args, $query[$key .' args']);
-    }
-  }
-  // Add order by
-  if (!empty($query['order'])) {
-    $sql .= ' ORDER BY ' . implode(', ', $query['order']);
-  }
-  // Return parameters or execute query
-  if (!$execute) {
-    return array($sql, $args);
-  }
-  elseif (!empty($query['pager'])) {
-    return pager_query($sql, $query['limit'], $query['pager'], NULL, $args);
-  }
-  elseif (!empty($query['limit'])) {
-    return db_query_range($sql, $args, 0, $query['limit']);
-  }
-  else {
-    return db_query($sql, $args);
-  }
 }
 
 /**
@@ -1205,16 +886,9 @@ function messaging_user_object($account) {
 }
 
 /**
- * Helper function, get user object property from account parameter (object or uid)
- */
-function messaging_user_property($account, $property) {
-  $account = messaging_user_object($account);
-  return $account && isset($account->$property) ? $account->$property : NULL;
-}
-/**
  * Callback for printing user names
  */
-function messaging_user_format_name($account, $html = FALSE) {
+function messaging_user_format_name($account, $format = MESSAGING_FORMAT_PLAIN) {
   $account = messaging_user_object($account);
-  return $html ? theme('username', array('account' => $account)) : check_plain($account->name);
+  return ($format & MESSAGING_FORMAT_HTML) ? theme('username', array('account' => $account)) : check_plain($account->name);
 }
