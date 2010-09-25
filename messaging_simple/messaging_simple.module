@@ -21,6 +21,8 @@ function messaging_simple_messaging($op = 'info') {
       $info['simple'] = array(
         'title' => t('Simple'),
         'class' => 'Messaging_Simple_Method',
+        'name' => t('Web'),
+        'description' => t('Display messages on the site in your Messages page.'),
       );
       return $info;
   }

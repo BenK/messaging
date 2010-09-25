@@ -30,13 +30,7 @@ class Messaging_Destination extends Messaging_Object {
    * Get name for display
    */
   function get_name() {
-    return $this->address_info('name', $this->address_name());
-  }
-  /**
-   * Get default address name
-   */
-  function address_name() {
-    return t('Destination');
+    return $this->address_info('name', t('Address'));
   }
 
   /**
@@ -45,15 +39,35 @@ class Messaging_Destination extends Messaging_Object {
   function get_address() {
     return $this->address;
   }
+
+  /**
+   * Get user account
+   */
+  function get_user() {
+    return isset($this->uid) ? messaging_user_object($this->uid) : NULL;
+  }
+
   /**
    * Set user for this destination
    */
   function set_user($user) {
     $this->uid = $user->uid;
     if (!isset($this->address)) {
-      $this->address = $this->user2address($user);
+      $this->address = $this->get_address_from_user($user);
     }
     return $this;
+  }
+  /**
+   * Get user from address
+   */
+  public static function get_user_from_address($address) {
+    return NULL;
+  }
+  /**
+   * Get address from user
+   */
+  public static function get_address_from_user($user) {
+    return NULL;
   }
 
   /**
@@ -68,26 +82,26 @@ class Messaging_Destination extends Messaging_Object {
    * Build destination from db object
    */
   public static function build_object($template) {
+    return self::build_type($template->type, $template);
+  }
+  /**
+   * Build from address type
+   */
+  public static function build_type($type, $template = NULL) {
     $class = messaging_address_info($template->type, 'class', 'Messaging_Destination');
-    return new $class($template);  
+    return new $class($template);
   }
   /**
    * Build from address
    */
   public static function build_address($type, $address) {
-    $class = messaging_address_info($type, 'class', 'Messaging_Destination');
-    $destination = new $class();
-    $destination->type = $type;
-    $destination->address = $address;
-    return $destination;
+    return self::build_type($type, array('address' => $address));
   }
   /**
    * Build from user account
    */
   public static function build_user($type, $user) {
-    $class = messaging_address_info($type, 'class', 'Messaging_Destination');
-    $destination = new $class();
-    $destination->type = $type;
+    $destination = self::build_type($type);
     $destination->set_user($user);
     return $destination;  
   }
@@ -167,12 +181,6 @@ class Messaging_Destination extends Messaging_Object {
   public static function validate_address($address) {
     return !empty($address);
   }
-  /**
-   * Map address to uid
-   */
-  public static function address2uid($type, $address) {
-    return 0;
-  }
   
   /**
    * Create from array data
@@ -251,14 +259,8 @@ class Messaging_Destination extends Messaging_Object {
   /**
    * Format address
    */
-  function format_address($html = FALSE) {
-    return check_plain($this->address);
-  }
-  /**
-   * Get user account
-   */
-  function get_user() {
-    return isset($this->uid) ? messaging_user_object($this->uid) : NULL;
+  public static function format_address($address, $format = MESSAGING_FORMAT_PLAIN) {
+    return isset($address) ? check_plain($address) : t('none');
   }
   /**
    * Delete from db and cache
@@ -310,38 +312,34 @@ class Messaging_Destination extends Messaging_Object {
     }
   }
   /**
-   * Get user from address
+   * Invoke static method on address type.
+   * 
+   * @param $type
+   *   Address type
+   * @param $method
+   *   Method name
+   * @param $arg1, $arg2...
    */
-  static function address2user($address) {
-    return NULL;
+  public static function static_invoke() {
+    $args = func_get_args();
+    $type = array_shift($args);
+    $function = array_shift($args);
+    $class = messaging_address_info($type, 'class', 'Messaging_Destination');
+    return call_user_func_array(array($class, $function), $args);
   }
-  /**
-   * Get address from user
-   */
-  static function user2address($user) {
-    return NULL;
-  }
-
 }
 
 /**
  * Destination is a system user
  */
 class Messaging_User_Destination extends Messaging_Destination {
+  public $type = 'user';
   public $address = '';
   /**
    * Get name for display
    */
   function address_name() { 
     return t('User');
-  }
-  /**
-   * Format address
-   */
-  function format_address($html = FALSE) {
-    if ($user = $this->get_user()) {
-      return $html ? theme('username', array('account' => $user)) : check_plain($user->name);
-    }
   }
   /**
    * Get address for sending
@@ -358,19 +356,25 @@ class Messaging_User_Destination extends Messaging_Destination {
   /**
    * Get user from address
    */
-  static function address2user($address) {
+  public static function get_user_from_address($address) {
     return $address;
   }
   /**
    * Get address from user
    */
-  static function user2address($user) {
+  public static function get_address_from_user($user) {
     return $user;
   }
   /**
    * Check address is valid
    */
-  static function validate_address($address) {
+  public static function validate_address($address) {
     return is_object($address) ? !empty($address->uid) : FALSE;
+  }
+  /**
+   * Format address
+   */
+  public static function format_address($user, $format = MESSAGING_FORMAT_PLAIN) {
+    return ($format & MESSAGING_FORMAT_HTML) ? theme('username', array('account' => $user)) : check_plain($user->name);
   }
 }

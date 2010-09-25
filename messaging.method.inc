@@ -9,28 +9,16 @@
 define('MESSAGING_TYPE_OUTGOING', 4);
 // Incoming method
 define('MESSAGING_TYPE_INCOMING', 8);
-// Method with push delivery. Messages will be pushed to the user using messaging sending methods.
-define('MESSAGING_TYPE_PUSH', 1);
-// Method type with pull delivery. Messages will be pulled from queue by the plug-in
-define('MESSAGING_TYPE_PULL', 2);
-
-// Disable queue for this method, when sending is more 'expensive' than queueing (like for simple method)
-define('MESSAGING_TYPE_NOQUEUE', 16);
-// Shorthand type: Push + Outgoing
-define('MESSAGING_TYPE_SEND', MESSAGING_TYPE_PUSH | MESSAGING_TYPE_OUTGOING);
 
 /**
  * Base class for all Incoming and Sending methods
  */
 abstract class Messaging_Method {
-  const TYPE_OUTGOING = MESSAGING_TYPE_OUTGOING;
-  const TYPE_INCOMING = MESSAGING_TYPE_INCOMING;
-  
+  // Method identifier
   public $method;
+  // Method type
   public $type;
-  public $title;
-  public $name;
-  public $description;
+  // Method group
   public $enabled = TRUE;
   public $anonymous = FALSE;
   // Remaining info array
@@ -43,24 +31,30 @@ abstract class Messaging_Method {
    */
   function __construct($method, $info = array()) {
     $this->method = $method;
-    $this->info = $info;
     foreach ($info as $key => $value) {
       $this->$key = $value;
     }
+    $this->info = $info;
+  }
+  /**
+   * Get method title for administrator list
+   */
+  function get_title() {
+    return $this->method_info('title', t('Method'));
+  }
+  /**
+   * Get method name, may be overridden by info properties
+   */
+  function get_name() {
+    return $this->method_info('name', t('Messaging'));
+  }
+  /**
+   * Get method description, may be overridden by info properties
+   */
+  function get_description() {
+    return $this->method_info('description', t('Send messages.'));
   }
 
-  function name() {
-    return $this->method_info('name', $this->method_name());
-  }
-  function description() {
-    return $this->method_info('description', $this->method_description());
-  }
-  function method_name() {
-    return t('Messaging method');
-  }
-  function method_description() {
-    return  t('Generic messaging method.');
-  }
   /**
    * Get info property
    */
@@ -108,7 +102,7 @@ abstract class Messaging_Method {
       drupal_set_message(t('Disabled messaging sending method but cannot find a replacement. Please, enable some other sending method.'), 'error');
     }  
   }
-  
+
 }
 
 /**
@@ -119,21 +113,27 @@ abstract class Messaging_Method {
  * - destination
  */
 class Messaging_Send_Method extends Messaging_Method {
-  // Method with push delivery. Messages will be pushed to the user using messaging sending methods.
-  const TYPE_PUSH = MESSAGING_TYPE_PUSH;
-  // Method type with pull delivery. Messages will be pulled using messaging pull methods
-  const TYPE_PULL = MESSAGING_TYPE_PULL;
-  // Disable queueing (sending is more expensive than queueing)
-  const TYPE_NOQUEUE = MESSAGING_TYPE_NOQUEUE;
-  // Shorthand type: Push + Outgoing
-  const TYPE_SEND = MESSAGING_TYPE_SEND;
+   // Default parameters for send method
+   public $method = 'send';
+   public $type = 'web';
+   public $enabled = TRUE;
+   // Available for anonymous users
+   public $anonymous = FALSE;
+   // Qeueue messages instead of sending
+   public $queue = FALSE;
 
+   public static function address_type() {
+     return 'user';
+   }
    /**
    * Message processing: Decide on queue, log, cron and send options, prepare parameters
    * 
    * At this stage, the message can be still redirected through other sending method, or marked for discard
    */
   function message_prepare($message) {
+    if (empty($message->priority) && $this->queue) {
+      $message->queue = 1;
+    }
     if (is_array($message->text['subject'])) {
       $message->text['subject'] += array('#theme' => 'message_subject');
     }
@@ -145,9 +145,6 @@ class Messaging_Send_Method extends Messaging_Method {
 
   /**
    * Renders full message with header and body
-   * 
-   * @param $message
-   *   Message object
    */  
   function message_render($message) {
     $message->subject = drupal_render($message->text['subject']);
@@ -156,10 +153,7 @@ class Messaging_Send_Method extends Messaging_Method {
   }
   
   /**
-   * Send message to a single destination
-   * 
-   * @param $message
-   *   Message object
+   * Send message to a single or multiple destination
    */
   function message_send($message) {
     $results = array();
@@ -201,19 +195,13 @@ class Messaging_Send_Method extends Messaging_Method {
   }
   
   /**
-   * Queue for multiple addresses
-   */
-  function message_queue_multiple($message, $addresses) {
-    
-  }
-  /**
    * Get destination for user account
    * 
    * @param $account
    *   User account object or uid
    */
   function user_destination($account) {
-    return Messaging_Destination::build_user($this->address_type, $account);
+    return Messaging_Destination::build_user($this->address, $account);
   }
 
   /**
@@ -223,7 +211,7 @@ class Messaging_Send_Method extends Messaging_Method {
     if (!$account->uid && !$this->anonymous) {
       return FALSE;
     }
-    if ($permission = $this->get_info('access')) {
+    if ($permission = $this->method_info('access')) {
       return user_access($permission, $account);
     }
     else {
@@ -250,35 +238,22 @@ class Messaging_Send_Method extends Messaging_Method {
    * Get uid for address
    */
   function get_address_uid($address) {
-    if ($this->address_type == 'user') {
+    if ($this->address == 'user') {
       return (int)$address;
-    }
-    elseif ($function = $this->get_address_info('address2uid callback')) {
-      return $function($address);
     }
   }
   /**
    * Validate address
    */
-  function address_validate($address) {
-    if ($function = $this->get_address_info('validate callback')) {
-      return $function($address);
-    }
-    else {
-      // The default address will be valid if not empty
-      return !empty($address);
-    }
+  public static function address_validate($address) {
+    return Messaging_Destination::static_invoke(self::address_type(), 'validate_address', $address);
   }
+
   /**
    * Format address for display
    */
-  function format_address($address, $html = FALSE) {
-    if ($function = $this->get_address_info('format callback')) {
-      return $function($address, $html);
-    }
-    else {
-      return check_plain($address);
-    }
+  public static function format_address($address, $format = MESSAGING_FORMAT_PLAIN) {
+    return Messaging_Destination::static_invoke(self::address_type(), 'format_address', $address, $format);
   }
 
   /**
@@ -286,11 +261,8 @@ class Messaging_Send_Method extends Messaging_Method {
    * 
    * Redirecting is only possible when we are sending to a user account, not for anonymous destinations
    */
-  function message_user($message, $account = NULL) {
-    if ($callback = $this->get_info('user callback')) {
-      $account = $account ? $account : $message->get_user();
-      call_user_func($callback, $message, $account);
-    }
+  function message_user($message) {
+
   }
 
   /**
@@ -299,4 +271,20 @@ class Messaging_Send_Method extends Messaging_Method {
   function supports_anonymous() {
     return TRUE;
   }
+  /**
+   * Invoke static method on method type.
+   * 
+   * @param $type
+   *   Address type
+   * @param $method
+   *   Method name
+   * @param $arg1, $arg2...
+   */
+  public static function static_invoke() {
+    $args = func_get_args();
+    $method = array_shift($args);
+    $function = array_shift($args);
+    $class = messaging_address_info($method, 'class', 'Messaging_Send_Method');
+    return call_user_func_array(array($class, $function), $args);
+  } 
 }

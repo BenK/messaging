@@ -40,6 +40,7 @@ abstract class Messaging_Object {
       }
     }    
   }
+
   /**
    * They need a build function
    */

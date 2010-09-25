@@ -39,7 +39,9 @@ function messaging_mail_messaging($op, $type = NULL) {
     case 'send methods':
       $info['mail'] = array(
         'title' => t('Drupal mail'),
-        'class' => 'Messaging_Method_Mail',
+        'class' => 'Messaging_Mail_Method',
+        'name' => t('Mail'),
+        'description' => t('Get messages as plain text e-mail.'),
       );
       return $info;
 

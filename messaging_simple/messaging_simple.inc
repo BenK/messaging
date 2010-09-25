@@ -10,17 +10,16 @@
  */
 class Messaging_Simple_Method extends Messaging_Send_Method {
   // Default group and address type
-  public $group = 'web';
-  public $address_type = 'user';
-  public $type = MESSAGING_TYPE_SEND;
+  public $method = 'simple';
+  public $type = 'web';
   public $anonymous = FALSE;
   public $format = MESSAGING_FORMAT_HTML;
 
-  function method_name() {
-    return t('Web');
-  }
-  function method_description() {
-    return t('Don\'t send messages but display them on a user account tab');
+  /**
+   * Get address type
+   */
+  public static function address_type() {
+    return 'user';
   }
   /**
    * It doesn't support anonymous destinations
@@ -46,21 +45,4 @@ class Messaging_Simple_Method extends Messaging_Send_Method {
     drupal_write_record('messaging_simple', $store);
     return TRUE;
   }
-  
 }
-
-/**
-      $info['simple'] = array(
-        'class' => 'Messaging_Simple_Method',
-        'name' => t('Web'),
-        'group' => 'web',
-        'address_type' => 'user', // Which kind of address this method uses
-        'type' => MESSAGING_TYPE_SEND | MESSAGING_TYPE_NOQUEUE,
-        'glue' => '<br />',
-        'description' => ,
-        'send callback' => 'messaging_simple_send_msg',
-        'format' => 'HTML',
-        'filter' => 'messaging_filter',
-        'anonymous' => FALSE, // This method is not valid for anonymous users       
-      );
-      */

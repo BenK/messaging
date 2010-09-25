@@ -36,9 +36,9 @@ function messaging_admin_settings() {
       if ($info['enabled']) {
         $enabled[] = $method;
       }
-      $method_names[$method] = $send_method->title;
-      $form['methods']['name'][$method]['#markup'] = $send_method->name();
-      $form['methods']['description'][$method]['#markup'] = $send_method->description();
+      $method_names[$method] = $send_method->get_title();
+      $form['methods']['name'][$method]['#markup'] = $send_method->get_name();
+      $form['methods']['description'][$method]['#markup'] = $send_method->get_description();
     }
     $form['methods']['messaging_method_enabled'] = array(
       '#type' => 'checkboxes',

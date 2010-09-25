@@ -8,28 +8,28 @@
 /**
  * Base class for mail sending methods
  */
-class Messaging_Method_Mail extends Messaging_Send_Method {
+class Messaging_Mail_Method extends Messaging_Send_Method {
   // Default group and address type
-  public $group = 'mail';
-  public $address_type = 'mail';
-  public $type = MESSAGING_TYPE_SEND;
+  public $method = 'mail';
+  public $type = 'mail';
   public $anonymous = TRUE;
+  public $format = MESSAGING_FORMAT_PLAIN;
 
-  function method_name() {
-    return t('Mail');
+  /**
+   * Get address type
+   */
+  public static function get_address_type() {
+    return 'mail';
   }
-  function method_description() {
-    return t('Get messages by e-mail.');
-  }  
   /**
    * Get address for user account
    */
-  function get_user_address($account) {
+  function get_address_from_user($account) {
     $account = messaging_user_object($account);
     return $account->uid && $account->mail ? $account->mail : NULL;
   }
   /**
-   * Get uid for address
+   * Get user for address
    */
   function get_address_uid($mail) {
     return db_result(db_query("SELECT uid FROM {users} WHERE mail = '%s'", $mail));
@@ -37,7 +37,7 @@ class Messaging_Method_Mail extends Messaging_Send_Method {
   /**
    * Validate address
    */
-  function address_validate($address) {
+  public static function address_validate($address) {
     return valid_email_address($address);
   }
 
@@ -202,19 +202,19 @@ class Messaging_Mail_Address extends Messaging_Destination {
   /**
    * Get user from address
    */
-  static function address2user($mail) {
+  public static function get_user_from_address($mail) {
     return user_load_by_mail($mail);
   }
   /**
    * Get address from user
    */
-  static function user2address($user) {
+  public static function get_address_from_user($user) {
     if ($user = messaging_user_object($user)) {
       return !empty($user->mail) ? $user->mail : NULL;
     }
   }
 
-  static function validate_address($address) {
+  public static function validate_address($address) {
     return valid_email_address($address);
   }
 }
