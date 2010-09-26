@@ -244,7 +244,7 @@ class Messaging_Message {
    */
   function get_text($key = NULL) {
     if ($key) {
-      return isset($this->text[$key]) ? $this->text[$key] : '';
+      return isset($this->text[$key]) ? $this->text[$key] : NULL;
     }
     else {
       return isset($this->text) ? $this->text : array();
@@ -278,13 +278,19 @@ class Messaging_Message {
     }
     else {
       $this->set_status(self::STATUS_BUILD);
+      // Properly set subject and body so they aren't lost when rendering
+      if (isset($this->subject) && !isset($this->text['subject'])) {
+        $this->text['subject'] = $this->subject;
+      }
+      if (isset($this->body) && !isset($template->text['body'])) {
+        $this->text['body'] = $this->body;
+      }
       // Provides a hook for other modules to modify the message before sending
       drupal_alter('messaging_message', $this);
       // The message must be built, without errors and not for discarding
       return $this->process_done('build');
     }
   }
-
   /**
    * Prepare for sending through given method
    * 
@@ -318,6 +324,7 @@ class Messaging_Message {
       return TRUE;
     }
     elseif ($this->prepare()) {
+      
       $this->send_method()->message_render($this);
       return $this->process_done('render');
     }
@@ -570,13 +577,6 @@ class Messaging_Message {
    * Build from template object
    */
   public static function build_template($template) {
-    // Properly set subject and body so they aren't lost when rendering
-    if (isset($template->subject) && !isset($template->text['subject'])) {
-      $template->text['subject'] = $template->subject;
-    }
-    if (isset($template->body) && !isset($template->text['body'])) {
-      $template->text['body'] = $template->body;
-    }
     return self::build_object($template);
   }
   /**

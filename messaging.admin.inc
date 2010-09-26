@@ -130,15 +130,29 @@ function messaging_admin_test_post_form() {
   $form['subject'] = array(
     '#type' => 'textfield',
     '#title' => t('Subject'),
-    '#size' => 20,
+    '#size' => 40,
     '#default_value' => t('Test message'),
   );
   $form['body'] = array(
-    '#type' => 'textarea',
+    '#type' => 'fieldset',
     '#title' => t('Body'),
-    '#default_value' => t("Hello.\n\nThis is a test message from !site_name", array('!site_name' => variable_get('site_name', 'Drupal'))),
+    '#tree' => TRUE,    
   );
-    
+  $form['body']['header'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Header'),
+    '#default_value' => t('Hello @name,', array('@name' => $user->name)),
+  );
+  $form['body']['content'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Content'),
+    '#default_value' => t("Sample message content.\nOne line\nTwo lines."),
+  );
+  $form['body']['footer'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Footer'),
+    '#default_value' => t("This is a test message from !site_name.", array('!site_name' => variable_get('site_name', 'Drupal'))),
+  );  
   $form['submit'] = array('#type' => 'submit', '#value' => t('Send'));
   
   return $form;
@@ -153,8 +167,7 @@ function messaging_admin_test_post_form_submit($form, $form_state) {
   messaging_log_start();
   
   // Convert body in array of lines
-  $body = split("\n", $form_state['values']['body']);
-  $body = array_map('trim', $body);
+  $body = array_map('trim', $form_state['values']['body']);
   $method = $form_state['values']['method'];
 
   $message = messaging_message_build(array(

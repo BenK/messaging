@@ -170,23 +170,35 @@ class Messaging_Send_Method extends Messaging_Method {
    * Renders full message with header and body
    */  
   function message_render($message) {
-    $this->render_subject($message);
-    $this->render_body($message);
+    $message->subject = $this->render_subject($message->get_text('subject'));
+    $message->body = $this->render_body($message->get_text('body'));
   }
   /**
    * Render message subject
    */
-  function render_subject($message) {
-    $text = $message->get_text('subject');
-    $message->subject = is_string($text) ? $text : drupal_render($text);
+  function render_subject($text) {
+    return $this->render_text($text, array('#type' => 'messaging_subject'));
   }
   /**
    * Render message body
    */
-  function render_body($message) {
-    $text = $message->get_text('body');
-    $message->body = is_string($text) ? $text : drupal_render($text);
+  function render_body($text) {
+    return $this->render_text($text, array('#type' => 'messaging_body'));
   }
+  
+  /**
+   * Render message text
+   */
+  function render_text($text, $defaults = array()) {
+    if (is_array($text)) {
+      $text += $defaults;
+      return drupal_render($text);
+    }
+    else {
+      return $text ? $text : '';
+    }
+  }
+
   /**
    * Send message to a single or multiple destination
    */

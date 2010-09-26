@@ -42,7 +42,6 @@ class Messaging_Simple_Method extends Messaging_Send_Method {
     $store = clone $message;
     $store->uid = $user->uid;
     $store->sent = time();
-    debug($store);
     drupal_write_record('messaging_simple', $store);
     return TRUE;
   }

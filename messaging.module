@@ -601,10 +601,44 @@ function messaging_token_values($type, $object = NULL, $options = array()) {
 }
 
 /**
+ * Implementation of hook_element_info()
+ */
+function messaging_element_info() {
+  $types['messaging_message'] = array(
+    '#theme' => 'messaging_message',
+  );
+  $types['messaging_subject'] = array(
+    '#markup' => '',
+    '#theme' => 'messaging_subject',
+  );
+  $types['messaging_body'] = array(
+    '#separator' => "\n",
+    '#theme' => 'messaging_body',
+  );
+  return $types;
+}
+
+/**
  * Implementation of hook_theme()
  */
 function messaging_theme() {
   return array(
+    'messaging_message' => array(
+      'render element' => 'element',
+      'file' => 'messaging.text.inc',
+    ),
+    'messaging_subject' => array(
+      'render element' => 'element',
+      'file' => 'messaging.text.inc',
+    ),
+    'messaging_body' => array(
+      'render element' => 'element',
+      'file' => 'messaging.text.inc',
+    ),    
+    'messaging_part' => array(
+      'render element' => 'element',
+      'file' => 'messaging.text.inc',
+    ),
     'messaging_admin_methods_table'  => array(
       'render element' => 'elements',
       'file' => 'messaging.admin.inc',

@@ -6,6 +6,117 @@
  */
 
 /**
+ * Message text template
+ */
+class Messaging_Text {
+  protected $text = array();
+  public $format = MESSAGING_FORMAT_PLAIN;
+  
+  /**
+   * Construct from array of text parts
+   */
+  function __construct($text = array()) {
+    $this->text = $text;
+    foreach (element_children($this->text) as $key) {
+      $this->add_item($key, $this->text[$key]); 
+    }
+  }
+  /**
+   * Add item of unknown type
+   */
+  function add_item($name, $value) {
+    if (is_string($value)) {
+      $this->add_string($name, $value);
+    }
+    elseif (is_object($value) || is_array($value)) {
+      $this->add_element($name, $value);
+    }
+  }
+  /**
+   * Add element ready for drupal_render()
+   */
+  function add_element($name, $element) {
+    $this->text[$name] = $element;
+  }
+  /**
+   * Add string
+   */
+  function add_string($name, $string) {
+    $element = array('#markup' => $string);
+    return add_element($name, $selement);
+  }
+
+  /**
+   * Render into text
+   */
+  function render() {
+    return $this->render_text($this->text);
+  }
+  
+  /**
+   * Render text recursively
+   */
+  function render_text(&$text) {
+    foreach (element_children($text) as $key) {
+      if (is_object($text[$key])) {
+        $text[$key] = $value->render();
+      }
+      else {
+        $text[$key] = $this->render_text($text[$key]);
+      }
+    }
+    return drupal_render($text);
+  }
+
+  /**
+   * Converts strings to plain utf-8 single line
+   */
+  static function check_subject($text) {
+    $text = messaging_text_check_plain($text, NULL);
+    // taken from _sanitizeHeaders() in PEAR mail() : http://pear.php.net/package/Mail
+    $text = preg_replace('=((0x0A/%0A|0x0D/%0D|\\n|\\r)\S).*=i', NULL, $text);
+    return $text;
+  }
+  
+  /**
+   * Composes message from different parts, recursively and applies filter
+   * 
+   * Filter is applied now only once
+   * 
+   * @param $text
+   *   Simple string or array of message parts
+   *   It may have named elements like #prefix and #text
+   *   or it may be single strings to render straight forward
+   * @param $glue
+   *   Text to glue all lines together
+   * @param $filter
+   *   Input format to apply to the results
+   */
+  static function text_render($text, $glue = '', $format = NULL, $filter = NULL) {
+    return messaging_text_render($text, $glue, $format, $filter);
+  }
+  
+  /**
+   * Clean text of HTML stuff and optionally of line endings
+   * 
+   * @param $text
+   *   Dirty HTML text to be filtered
+   * @param $newline
+   *   Optional string to be used as line ending
+   */
+  static function text_clean($text, $newline = NULL) {
+    return messaging_text_clean($text, $newline);
+  }
+  
+  /**
+   * Truncate messages to given length.  Adapted from node_teaser() in node.module
+   */
+  static function text_truncate($text, $length) {
+    return messaging_text_truncate($text, $length);
+  }
+}
+
+/**
  * HTML to text simple filtering.
  * - Replace some tags with line endings: p, br, hr, li, h1, h2, h3, h4
  * Strip out all HTML tags and decode entities
@@ -293,3 +404,30 @@ function messaging_check_subject($text) {
 function messaging_text_build($message, $glue = ' ') {
   return $message->get_text($glue);
 }
+
+/**
+ * Theme message
+ */
+function theme_messaging_message($variables) {
+  $element = $variables['element'];
+}
+/**
+ * Theme message subject
+ */
+function theme_messaging_subject($variables) {
+  $element = $variables['element'];
+}
+/**
+ * Theme message body
+ */
+function theme_messaging_body($variables) {
+  $element = $variables['element'];
+  $element += array('#separator' => "\n");
+  $text = array();
+  foreach (element_children($element) as $key) {
+    if (isset($element[$key])) {
+      $text[] = is_array($element[$key]) ? drupal_render($element[$key]) : $element[$key];
+    }
+  }
+  return implode($element['#separator'], $text);
+} 
