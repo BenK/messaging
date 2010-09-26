@@ -113,20 +113,38 @@ abstract class Messaging_Method {
  * - destination
  */
 class Messaging_Send_Method extends Messaging_Method {
-   // Default parameters for send method
-   public $method = 'send';
-   public $type = 'web';
-   public $enabled = TRUE;
-   // Available for anonymous users
-   public $anonymous = FALSE;
-   // Qeueue messages instead of sending
-   public $queue = FALSE;
-   // Whether we want all messages logged for this method
-   public $log = FALSE;
-   
-   public static function address_type() {
-     return 'user';
-   }
+  // Default parameters for send method
+  public $method = 'send';
+  public $type = 'web';
+  public $enabled = TRUE;
+  // Available for anonymous users
+  public $anonymous = FALSE;
+  // Qeueue messages instead of sending
+  public $queue = FALSE;
+  // Whether we want all messages logged for this method
+  public $log = FALSE;
+  
+  /**
+  * Get address type
+  */
+  public static function address_type() {
+    return 'user';
+  }
+
+  /**
+  * Get address info property
+  */
+  public static function address_info($property = NULL, $default = NULL) {
+    return messaging_address_info(self::address_type(), $property, $default);
+  }
+
+  /**
+   * Get address name
+   */
+  public static function address_name() {
+    return self::address_info('name', t('Address'));
+  }
+
    /**
    * Message processing: Decide on queue, log, cron and send options, prepare parameters
    * 
@@ -138,33 +156,44 @@ class Messaging_Send_Method extends Messaging_Method {
       $message->queue = 1;
     }
     $message->log = $message->log || $this->log;
-    if (is_array($message->text['subject'])) {
-      $message->text['subject'] += array('#theme' => 'message_subject');
-    }
-    if (is_array($text['body'])) {
-      $message->text['body'] += array('#theme' => 'message_body');
-    }
-    $message->prepared = TRUE;
+  }
+
+  /**
+   * Prepare message for specific user. Check availability, redirect, etc..
+   * 
+   * Redirecting is only possible when we are sending to a user account, not for anonymous destinations
+   */
+  function message_user($message) {
   }
 
   /**
    * Renders full message with header and body
    */  
   function message_render($message) {
-    $message->subject = drupal_render($message->text['subject']);
-    $message->body = drupal_render($message->text['body']);
-    $message->rendered = TRUE;
+    $this->render_subject($message);
+    $this->render_body($message);
   }
-  
+  /**
+   * Render message subject
+   */
+  function render_subject($message) {
+    $text = $message->get_text('subject');
+    $message->subject = is_string($text) ? $text : drupal_render($text);
+  }
+  /**
+   * Render message body
+   */
+  function render_body($message) {
+    $text = $message->get_text('body');
+    $message->body = is_string($text) ? $text : drupal_render($text);
+  }
   /**
    * Send message to a single or multiple destination
    */
   function message_send($message) {
-    $results = array();
-    foreach ($message->get_destinations() as $key => $destination) {
-      $results[$key] = $this->send_destination($destination, $message);
-    }
-    $message->add_results($results);
+    $destinations = $message->get_destinations();
+    $results = $this->send_multiple($destinations, $message);
+    $message->set_results($results);
     return (boolean)array_filter($results);
   }
   
@@ -180,7 +209,24 @@ class Messaging_Send_Method extends Messaging_Method {
   function send_address($address, $message) {
     return FALSE;
   }
-  
+  /**
+   * Send message to multiple destinations
+   */
+  function send_multiple($destinations, $message) {
+    $results = array();
+    foreach ($destinations as $key => $destination) {
+      $results[$key] = $this->send_destination($destination, $message);
+    }
+    return $results;    
+  }
+
+  /**
+   * Get message parameters for this method
+   */
+  function message_params($message) {
+    return $message->get_params($this->method) + $message->get_params($this->type) + $this->default_params();    
+  }
+
   /**
    * Queue message for next delivery
    * 
@@ -190,10 +236,12 @@ class Messaging_Send_Method extends Messaging_Method {
    */
   function message_queue($message) {
     if ($queue = messaging_store('queue')) {
-      return $queue->message_queue($message);
+      $message->queued = time();
+      $queue->message_queue($message);
+      return TRUE;
     }
     else {
-      $message->queued = FALSE;
+      $message->queued = 0;
       return $this->message_send($message);
     }
   }
@@ -224,49 +272,23 @@ class Messaging_Send_Method extends Messaging_Method {
   }
 
   /**
-   * Get address name
+   * Make address into destination
    */
-  function address_name() {
-    if (empty($this->address_name)) {
-      if ($name = $this->get_address_info('name')) {
-        $this->address_name = $name;
-      }
-      else {
-        $this->address_name = t('Address');
-      }
-    } 
-    return $this->address_name; 
-  }
-
-  /**
-   * Get uid for address
-   */
-  function get_address_uid($address) {
-    if ($this->address == 'user') {
-      return (int)$address;
-    }
+  function address_destination($address, $validate = TRUE) {
+    return Messaging_Destination::build_address(self::address_type(), $address, $validate);
   }
   /**
    * Validate address
    */
   public static function address_validate($address) {
-    return Messaging_Destination::static_invoke(self::address_type(), 'validate_address', $address);
+    return Messaging_Destination::validate_address($address, self::address_type());
   }
 
   /**
    * Format address for display
    */
   public static function format_address($address, $format = MESSAGING_FORMAT_PLAIN) {
-    return Messaging_Destination::static_invoke(self::address_type(), 'format_address', $address, $format);
-  }
-
-  /**
-   * Prepare message for specific user. Check availability, redirect, etc..
-   * 
-   * Redirecting is only possible when we are sending to a user account, not for anonymous destinations
-   */
-  function message_user($message) {
-
+    return Messaging_Destination::format_address($address, $format, self::address_type());
   }
 
   /**
@@ -275,20 +297,11 @@ class Messaging_Send_Method extends Messaging_Method {
   function supports_anonymous() {
     return TRUE;
   }
+  
   /**
-   * Invoke static method on method type.
-   * 
-   * @param $type
-   *   Address type
-   * @param $method
-   *   Method name
-   * @param $arg1, $arg2...
+   * Get default parameters for this method
    */
-  public static function static_invoke() {
-    $args = func_get_args();
-    $method = array_shift($args);
-    $function = array_shift($args);
-    $class = messaging_address_info($method, 'class', 'Messaging_Send_Method');
-    return call_user_func_array(array($class, $function), $args);
-  } 
+  static function default_params() {
+    return array();
+  }
 }

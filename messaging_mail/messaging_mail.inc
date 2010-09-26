@@ -18,27 +18,8 @@ class Messaging_Mail_Method extends Messaging_Send_Method {
   /**
    * Get address type
    */
-  public static function get_address_type() {
+  public static function address_type() {
     return 'mail';
-  }
-  /**
-   * Get address for user account
-   */
-  function get_address_from_user($account) {
-    $account = messaging_user_object($account);
-    return $account->uid && $account->mail ? $account->mail : NULL;
-  }
-  /**
-   * Get user for address
-   */
-  function get_address_uid($mail) {
-    return db_result(db_query("SELECT uid FROM {users} WHERE mail = '%s'", $mail));
-  }
-  /**
-   * Validate address
-   */
-  public static function address_validate($address) {
-    return valid_email_address($address);
   }
 
   /**

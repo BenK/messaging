@@ -77,7 +77,14 @@ class Messaging_Destination extends Messaging_Object {
     $dest = self::load_multiple(array(), $params);
     return reset($dest);
   }
-
+  /**
+   * Build destination object
+   */
+  public static function build($type, $address = NULL, $uid = NULL, $validate = FALSE) {
+    if (!$validate || self::address_validate($address, $type)) {
+      return self::build_type($type, array('address' => $address, 'uid' => $uid));
+    }
+  }
   /**
    * Build destination from db object
    */
@@ -88,14 +95,16 @@ class Messaging_Destination extends Messaging_Object {
    * Build from address type
    */
   public static function build_type($type, $template = NULL) {
-    $class = messaging_address_info($template->type, 'class', 'Messaging_Destination');
-    return new $class($template);
+    $class = messaging_address_info($type, 'class', 'Messaging_Destination');
+    $destination = new $class($template);
+    $destination->type = $type;
+    return $destination;
   }
   /**
    * Build from address
    */
-  public static function build_address($type, $address) {
-    return self::build_type($type, array('address' => $address));
+  public static function build_address($type, $address, $validate = FALSE) {
+    return self::build($type, $address, NULL, $validate);
   }
   /**
    * Build from user account
@@ -177,11 +186,21 @@ class Messaging_Destination extends Messaging_Object {
 
   /**
    * Validate address format
+   * 
+   * @param $address
+   *   Destination address
+   * @param $type
+   *   Optional address type, for static calls
    */
-  public static function validate_address($address) {
-    return !empty($address);
+  public static function validate_address($address, $type = NULL) {
+    if ($type) {
+      return self::static_invoke($type, 'validate_address', $address);
+    }
+    else {
+      return !empty($address);
+    }
   }
-  
+
   /**
    * Create from array data
    */
@@ -257,14 +276,34 @@ class Messaging_Destination extends Messaging_Object {
   }
 
   /**
-   * Format address
+   * Format destination
    */
-  public static function format_address($address, $format = MESSAGING_FORMAT_PLAIN) {
-    return isset($address) ? check_plain($address) : t('none');
+  function format($type = 'short', $format = MESSAGING_FORMAT_PLAIN) {
+    $address = $this->get_address();
+    switch ($type) {
+      case 'short':
+        return $this->format_address($address, $format);
+      case 'long':
+        return $this->get_name() . ': ' . $this->format_address($address, $format);
+    }
   }
+
   /**
-   * Delete from db and cache
+   * Format address.
+   * 
+   * @param $address
+   *   Destination address
+   * @param $type
+   *   Optional address type, for static calls
    */
+  public static function format_address($address, $format = MESSAGING_FORMAT_PLAIN, $type = NULL) {
+    if ($type) {
+      return self::static_invoke($type, 'format_address', $address, $format);
+    }
+    else {
+      return isset($address) ? check_plain($address) : t('none');
+    }
+  }
   
   /**
    * Delete messaging destination object/s
@@ -320,7 +359,7 @@ class Messaging_Destination extends Messaging_Object {
    *   Method name
    * @param $arg1, $arg2...
    */
-  public static function static_invoke() {
+  protected static function static_invoke() {
     $args = func_get_args();
     $type = array_shift($args);
     $function = array_shift($args);

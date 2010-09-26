@@ -276,7 +276,13 @@ function messaging_send_method($method, $method_info = array()) {
  * Build message object from object or array
  */
 function messaging_message_build($message) {
-  return messaging_check_object($message, 'Messaging_Message', TRUE);
+  if (is_object($message) && is_a($message, 'Messaging_Message')) {
+    return $message;
+  }
+  elseif (is_array($message)) {
+    $message = (object)$message;
+  }
+  return Messaging_Message::build_template($message);
 }
 
 /**
@@ -326,7 +332,9 @@ function messaging_message_test($message, $destinations = array()) {
  */
 function messaging_cron() {
   if (variable_get('messaging_queue_process_cron', TRUE)) {
-    messaging_store()->cron_process();
+    if ($store = messaging_store('cron')) {
+      $store->cron_process();
+    }
   }
 }
 
@@ -622,7 +630,7 @@ function messaging_theme() {
  */
 function messaging_array_info($data, $type = NULL, $property = NULL, $default = NULL) {
   if ($type && $property) {
-    return isset($data[$type][$field]) ? $data[$type][$field] : $default;
+    return isset($data[$type][$property]) ? $data[$type][$property] : $default;
   }
   elseif ($type) {
     return isset($data[$type]) ? $data[$type] : array();
@@ -645,11 +653,11 @@ function messaging_array_info($data, $type = NULL, $property = NULL, $default = 
  * @param $default
  *   Default value to return if no value
  */
-function messaging_array_list($data, $field, $filter = TRUE, $default = NULL) {
+function messaging_array_list($data, $property, $filter = TRUE, $default = NULL) {
   $return = array();
   foreach ($data as $type => $info) {
-    if (isset($info[$field])) {
-      $return[$type] = $info[$field];
+    if (isset($info[$property])) {
+      $return[$type] = $info[$property];
     }
     elseif (!$filter) {
       $return[$type] = $default;

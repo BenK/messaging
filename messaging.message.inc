@@ -66,7 +66,7 @@ class Messaging_Message {
   public $subject;
   public $body;
   // Unrendered message parts
-  public $text;
+  protected $text;
   // Files linked to this message, object array indexed by 'fid'
   public $files;
   // Processing flags. They are 1 if the message is:
@@ -82,7 +82,6 @@ class Messaging_Message {
   public $updated = 0;
   // Error code, error text
   public $error = 0;
-  public $error_msg;
   // Temporary processing variables. These are not stored
   public $result = TRUE; // Result of last operation
   public $discard = FALSE;  // Marked to be discarded
@@ -101,13 +100,71 @@ class Messaging_Message {
   }
   /**
    * Add destination object
+   * 
+   * @param $destination
+   *   Destination object
+   * @param $check
+   *   Check whether this destination type is valid for the send method
+   * @return Messaging_Destination
+   *   Returns the destination if successfully added
    */
-  function add_destination($destinations) {
-    $destinations = is_array($destinations) ? $destinations : array($destinations);
-    // This will take care of duplicated destinations
-    foreach ($destinations as $dest) {
-      $this->destination[$dest->index()] = $dest;
+  function add_destination($destination, $check = FALSE) {
+    if (!$check || $destination->type == $this->send_method()->address_type()) {
+      $this->destination[$destination->index()] = $destination;
+      return $destination;
     }
+  }
+  /**
+   * Add destination list, taking care of duplicated destinations
+   * 
+   * @param $destinations
+   *   Array of destinations
+   * @
+   */
+  function add_destination_list($destinations, $check = TRUE) {
+    foreach ($destinations as $index => $dest) {
+      $destinations[$index] = $this->add_destination($dest, $check);
+    }
+    return array_filter($destinations);
+  }
+  /**
+   * Add user as a destination
+   * 
+   * @param $user
+   *   User object
+   * @return Messaging_Destination
+   *   Returns the destination if successfully added
+   */
+  function add_user($user) {
+    if ($destination = $this->send_method()->user_destination($user)) {
+      return $this->add_destination($destination);
+    }
+  }
+  /**
+   * Add list of users as destinations
+   */
+  function add_user_list($users) {
+    foreach ($users as $index => $user) {
+      $users[$index] = $this->add_user();
+    }
+    return array_filter($users);
+  }
+  /**
+   * Add address or array of addresses as destination
+   */
+  function add_address($address, $validate = TRUE) {
+    if ($destination = $this->send_method()->address_destination($address, $validate)) {
+      return $this->add_destination($destination);
+    } 
+  }
+  /**
+   * Add list of addresses as destinations
+   */
+  function add_address_list($addresses) {
+    foreach ($addresses as $key => $address) {
+      $addresses[$key] = $this->add_address($address);
+    }
+    return array_filter($addresses);
   }
   /**
    * Get destinations for sending
@@ -124,30 +181,14 @@ class Messaging_Message {
     if (empty($this->method)) {
       $this->method = Messaging_Method::default_method($account);
     }
-    $this->add_user($account);   
-    // Let the sending method prepare the message for this user
-    $this->process_method('message_user');
-    return $this;
+    return $this->add_user($account);
   }
+
   /**
    * Get user, if the message is intended for a single user
    */
   function get_user() {
     return !empty($this->uid) ? user_load($this->uid) : NULL; 
-  }
-  /**
-   * Add user as a destination
-   * 
-   * A real destination will be searched for user account
-   */
-  function add_user($account) {
-    if ($destination = $this->send_method()->user_destination($account)) {
-      $this->add_destination($destination);
-      return TRUE;
-    }
-    else {
-      return FALSE;
-    }
   }
   
   /**
@@ -180,7 +221,7 @@ class Messaging_Message {
    * @param $results
    *   Array of results indexed per destination key
    */
-  function add_results($results) {
+  function set_results($results) {
     $this->results = array_merge($this->results, $results);
   }
   
@@ -197,6 +238,29 @@ class Messaging_Message {
   function get_body() {
     $this->render();
     return $this->body;
+  }
+  /**
+   * Get unrendered text parts
+   */
+  function get_text($key = NULL) {
+    if ($key) {
+      return isset($this->text[$key]) ? $this->text[$key] : '';
+    }
+    else {
+      return isset($this->text) ? $this->text : array();
+    }
+  }
+  /**
+   * Set text part, to be rendered
+   */
+  function set_text($key, $text) {
+    if ($key) {
+      $this->text[$key] = $text;
+    }
+    else {
+      $this->text = $text;
+    }
+    return $this;
   }
   /**
    * Get message files
@@ -230,8 +294,12 @@ class Messaging_Message {
     if (!$this->process_todo('prepare')) {
       return TRUE;
     }
-    elseif ($this->process('build')) {
+    elseif ($this->build()) {
       $this->set_status(self::STATUS_PREPARE);
+      // If message for user, let the sending method prepare the message for this user
+      if (!empty($this->uid)) {
+        $this->process_method('message_user');
+      }
       // Prepare invoking one or more sending methods
       $this->process_method('message_prepare') ;
       // At this stage the message must be ready and have a valid destination
@@ -249,7 +317,7 @@ class Messaging_Message {
     if (!$this->process_todo('render')) {
       return TRUE;
     }
-    elseif ($this->process('prepare')) {
+    elseif ($this->prepare()) {
       $this->send_method()->message_render($this);
       return $this->process_done('render');
     }
@@ -294,7 +362,7 @@ class Messaging_Message {
       return $this->dispatch();
     }
     elseif (!$this->process_todo('queue')) {
-      return TRUE
+      return TRUE;
     }
     else {
       $this->set_status(self::STATUS_QUEUE);
@@ -307,10 +375,10 @@ class Messaging_Message {
    * Check whether the message is to be sent / queued
    * 
    * @return boolean
-   *   True if it needs further processing
+   *   Final success status
    */
   protected function dispatch() {
-    if ($this->process('prepare')) {
+    if ($this->prepare() && $this->check_status()) {
       // Mark as processed, so it is actually queued/sent
       $this->set_status(self::STATUS_DISPATCH);
       $this->process_done('dispatch');
@@ -336,19 +404,6 @@ class Messaging_Message {
     }
   }
 
-
-  /**
-   * Run a process step
-   */
-  protected function process($operation) {
-    if ($this->process_todo($operation)) {
-      $this->result = TRUE;
-      return $this->$operation();
-    }
-    else {
-      return TRUE;
-    }
-  }
   /**
    * Mark operation as done
    */
@@ -357,12 +412,14 @@ class Messaging_Message {
     $this->process[$step] = $success;
     return $success;
   }
+
   /**
    * Check whether an operation is still to do
    */
   protected function process_todo($step) {
     return empty($this->process[$step]);
   }
+
   /**
    * Process through sending method
    * 
@@ -405,12 +462,12 @@ class Messaging_Message {
    * @param $text
    *   Error message to be stored
    */
-  function set_error($code = 1, $text = 'ERROR') {
+  function set_error($code = 1, $text = NULL) {
     // This will stop processing if we are in the middle of anything
-    $this->status = self::STATUS_ERROR;
+    $this->set_status(self::STATUS_ERROR);
+    $this->set_text('error', $text ? $text : t('Error code !code', array('!code' => $code)));
     $this->result = FALSE;
     $this->error = $code;
-    $this->error_msg = $text;
     $this->message_log('Error processing message.');
     // By default, messages are set to be logged when errors happen
     if ($this->log_error) {
@@ -508,6 +565,19 @@ class Messaging_Message {
    */
   public static function build_object($template) {
     return new Messaging_Message($template);
+  }
+  /**
+   * Build from template object
+   */
+  public static function build_template($template) {
+    // Properly set subject and body so they aren't lost when rendering
+    if (isset($template->subject) && !isset($template->text['subject'])) {
+      $template->text['subject'] = $template->subject;
+    }
+    if (isset($template->body) && !isset($template->text['body'])) {
+      $template->text['body'] = $template->body;
+    }
+    return self::build_object($template);
   }
   /**
    * Invoke hook_messaging_message() on all modules

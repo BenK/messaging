@@ -30,18 +30,19 @@ class Messaging_Simple_Method extends Messaging_Send_Method {
   /**
    * Send message to address, use sending callback
    */
-  function send_address($address, $message) {
+  function send_address($user, $message) {
     return $this->send_user($user, $message); 
   }
   /**
    * Send to user. Just store the message to be shown later.
    */
   function send_user($user, $message) {
-    // Store without changing the original message
+    $user = messaging_user_object($user);
     $message->render();
     $store = clone $message;
     $store->uid = $user->uid;
     $store->sent = time();
+    debug($store);
     drupal_write_record('messaging_simple', $store);
     return TRUE;
   }

@@ -88,7 +88,7 @@ function messaging_admin_method_settings() {
       $form['methods'][$key]['name'] = array(
         '#title' => t('Name'),
         '#type' => 'textfield',
-        '#default_value' => $send_method->name(),
+        '#default_value' => $send_method->get_name(),
         '#size'          => 20,
       );
       // Log and queue can be enabled by 'Messaging Tool', disabled otherwise
@@ -166,22 +166,21 @@ function messaging_admin_test_post_form_submit($form, $form_state) {
   ));
   
   // Destination may be account or plain parameter/s
-  $destination = $form_state['values']['to'];
+  $address = $form_state['values']['to'];
   $send_method = messaging_send_method($method);
   
-  if ($account = user_load(array('name' => $destination))) {
+  if ($account = user_load_by_name($address)) {
     $vars['!name'] = theme('username', array('account' => $account));
-    if ($message->set_user($account)) {
-      drupal_set_message(t('Found address @address for user !name', array('@address' => $address) + $vars));
+    if ($destination = $message->set_user($account)) {
+      drupal_set_message(t('Found address @address for user !name', array('@address' => $destination->format('long')) + $vars));
       $result = $message->send();
     }
     else {
       drupal_set_message(t('Cannot find a valid address for user !name', $vars), 'error');
     }
     
-  } elseif ($send_method->address_validate($destination)) {
-    drupal_set_message(t('Sending message to address: @address', array('@address' => $destination)));
-    $message->add_destination($destination);
+  } elseif ($destination = $message->add_address($address, TRUE)) {
+    drupal_set_message(t('Sending message to address: @address', array('@address' => $address)));
     $result = $message->send();
   }
   else {
