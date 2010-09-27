@@ -610,6 +610,7 @@ function messaging_element_info() {
   $types['messaging_subject'] = array(
     '#markup' => '',
     '#theme' => 'messaging_subject',
+    '#pre_render' => array('drupal_pre_render_markup'),
   );
   $types['messaging_body'] = array(
     '#separator' => "\n",

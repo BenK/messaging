@@ -60,13 +60,18 @@ class Messaging_Message {
   public $destination = array();
   // User destination, if the message is intended for a single user
   public $uid;
+  // Sender parameters
+  public $sender = array();
   // Results for each destination
   public $results = array();
   // Rendered message parts
   protected $text;
   // Unrendered message parts
-  public $elements = array('#type' => 'messaging_message');
-  
+  public $elements = array(
+    '#type' => 'messaging_message',
+    'subject' => array('#type' => 'messaging_subject'),
+    'body' => array('#type' => 'messaging_body'),
+  );
   // Files linked to this message, object array indexed by 'fid'
   public $files;
   // Processing flags. They are 1 if the message is:
@@ -190,7 +195,32 @@ class Messaging_Message {
   function get_user() {
     return !empty($this->uid) ? user_load($this->uid) : NULL; 
   }
-  
+  /**
+   * Get sender parameters or single property
+   */
+  function get_sender($property = NULL) {
+    if (!$property) {
+      return $this->sender;
+    }
+    else {
+      return isset($this->sender[$property]) ? $this->sender[$property] : NULL;
+    }
+  }
+  /**
+   * Get sender name
+   */
+  function get_sender_name() {
+    if ($name = $this->get_sender('name')) {
+      return $name;
+    }
+    elseif (($uid = $this->get_sender('uid')) && ($user = user_load($uid))) {
+      return $this->sender['name'] = check_plain($user->name);
+    }
+    else {
+      return $this->sender['name'] = variable_get('site_name', 'Drupal');
+    }
+  }
+
   /**
    * Check message status, will return FALSE if we should stop processing
    */
@@ -257,6 +287,17 @@ class Messaging_Message {
     return $this->get_text('body');
   }
   /**
+   * Get language object
+   */
+  function get_language() {
+    if (!empty($this->language) && ($list = language_list()) && isset($list[$this->language])) {
+      return $list[$this->language];
+    }
+    else {
+     return language_default();
+    }
+  }
+  /**
    * Get rendered text
    */
   function get_text($key, $method = NULL) {
@@ -281,8 +322,14 @@ class Messaging_Message {
   /**
    * Set text array, replace in message text
    */
-  function set_element($name, $text) {
-    $this->elements[$name] = $this->prepare_element($text);
+  function set_element($name, $element) {
+    $this->elements[$name] = $this->prepare_element($element);
+  }
+  /**
+   * Add element array, merge in message text
+   */
+  function add_element($name, $element) {
+    $this->elements[$name] = array_merge($this->elements[$name], $this->prepare_element($element));
   }
   /**
    * Get message files
@@ -325,9 +372,8 @@ class Messaging_Message {
    */
   protected function do_prepare() {
     $this->set_status(self::STATUS_PREPARE);
-    // Prepare text parts for rendering
-    $this->elements['subject'] += array('#type' => 'messaging_subject');
-    $this->elements['body'] += array('#type' => 'messaging_body');
+    // Fill in sender information
+    $this->sender += array('uid' => 0);
     // Prepare invoking one or more sending methods
     $this->send_method()->message_prepare($this);
     // At this stage the message must be ready and have a valid destination
@@ -630,5 +676,16 @@ class Messaging_Message {
    */
   protected function debug($text) {
     messaging_debug($text, array('message' => $this));
+  }
+  /**
+   * Magic method, properly set some variables
+   */
+  public function __set($name, $value) {
+    switch ($name) {
+      case 'subject':
+      case 'body':
+        // Add text elements the right way
+        $this->add_element($name, $value);
+    }
   }
 }

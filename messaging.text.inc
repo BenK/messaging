@@ -30,7 +30,6 @@ class Messaging_Text {
     elseif (is_object($value) || is_array($value)) {
       $this->add_element($name, $value);
     }
-    elseif (is_array($val))
   }
   /**
    * Add element ready for drupal_render()
@@ -427,7 +426,14 @@ function theme_messaging_message($variables) {
  */
 function theme_messaging_subject($variables) {
   $element = $variables['element'];
+  $element += array('#separator' => ' '); 
+  $text[] = $element['#children'];
+  if ($more = drupal_render_children($element)) {
+    $text[] = $more;
+  }
+  return implode($element['#separator'], $text);
 }
+
 /**
  * Theme message body
  */

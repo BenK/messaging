@@ -66,8 +66,8 @@ function messaging_simple_access($account, $message = NULL) {
 /**
  * Load callback
  */
-function messaging_simple_message_load($msid) {
-  return db_query("SELECT * FROM {messaging_simple} WHERE msid = :msid", array(':msid' => $msid))->fetchObject();
+function messaging_simple_message_load($mgid) {
+  return Messaging_Simple::load($mgid);
 }
 
 /**
@@ -96,7 +96,7 @@ function messaging_simple_user_overview($account) {
   foreach (messaging_simple_get_messages(array('uid' => $account->uid)) as $message) {
     $message->sender_account = $message->sender ? user_load($message->sender) : NULL;
     $rows[] = array(
-      l($message->subject, 'user/' . $account->uid . '/messages/' . $message->msid),
+      l($message->subject, 'user/' . $account->uid . '/messages/' . $message->mgid),
       !empty($message->sender_account) ? theme('username', $message->sender_account) : t('System'),
       format_date($message->sent),
     );
@@ -141,7 +141,7 @@ function messaging_simple_view_form($form, &$form_state, $message) {
  */
 function messaging_simple_view_form_submit($form, &$form_state) {
   db_delete('messaging_simple')
-    ->condition('msid', $form_state['values']['message']->msid)
+    ->condition('mgid', $form_state['values']['message']->mgid)
     ->execute();
   drupal_set_message(t('The message has been deleted.'));
 }

@@ -30,6 +30,16 @@ function messaging_store_cron_queue_info() {
   ));
 }
 
+/**
+ * Implementation of hook_messaging_method
+ */
+function messaging_store_messaging_method($op, $method, $param = NULL) {
+  switch ($op) {
+    case 'disable':
+      db_delete('messaging_store')->condition('method', $method)->execute();
+      break;
+  }
+}
 
 /**
  * Worker callback. Check whether the message has expired before sending out.

@@ -170,11 +170,11 @@ class Messaging_Send_Method extends Messaging_Method {
    * Renders full message with header and body
    */  
   function message_render($message) {
-    $elements = $message->get_elements();
+    $elements = $message->get_element();
     $text = array();
     foreach (element_children($elements) as $name) {
       $method = method_exists($this, 'render_' . $name) ? 'render_' . $name : 'render_text';
-      $text[$name] = $this->$method($text[$name]);
+      $text[$name] = $this->$method($elements[$name]);
     }
     return $text;
   }
