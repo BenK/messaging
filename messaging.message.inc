@@ -63,10 +63,10 @@ class Messaging_Message {
   // Results for each destination
   public $results = array();
   // Rendered message parts
-  public $subject;
-  public $body;
-  // Unrendered message parts
   protected $text;
+  // Unrendered message parts
+  public $elements = array('#type' => 'messaging_message');
+  
   // Files linked to this message, object array indexed by 'fid'
   public $files;
   // Processing flags. They are 1 if the message is:
@@ -88,7 +88,7 @@ class Messaging_Message {
   public $redirect = FALSE; // Redirect to a different sending method
   public $retry = FALSE;    // Retry sending
   public $deleted = FALSE;  // The message has been deleted, though it's still around for whatever use
-  // Keep result of every step
+  // Keep to-do status and result of every step for every method
   protected $process = array();
   /**
    * Constructor, with predefined array of data
@@ -195,8 +195,9 @@ class Messaging_Message {
    * Check message status, will return FALSE if we should stop processing
    */
   function check_status() {
-    return !$this->discard && !$this->error && !$this->deleted;
+    return !empty($this->method) && !$this->discard && !$this->error && !$this->deleted;
   }
+
   /**
    * Set success status and return status check
    */
@@ -205,13 +206,31 @@ class Messaging_Message {
     $this->result = TRUE;
     return $this->check_status();
   }
+
   /**
-   * Check we have a sending method and a destination
+   * Get a list of destinations for current method
    */
   function check_destination() {
-    return !empty($this->method) && !empty($this->destination);
+    if (empty($this->method) || empty($this->destination)) {
+      return FALSE;
+    }
+    else {
+      return $this->destination_type($this->send_method()->address_type());
+    }
   }
-  
+
+  /**
+   * Get list of destinations of this type
+   */
+  function destination_type($type) {
+    $result = array();
+    foreach ($this->destination as $key => $destination) {
+      if ($destination->type == $type) {
+        $result[$key] = $destination;
+      }
+    }
+    return $result;
+  }
   /**
    * Set full array of destinations
    */
@@ -229,38 +248,41 @@ class Messaging_Message {
    * Get rendered subject
    */
   function get_subject() {
-    $this->render();
-    return $this->subject;
+    return $this->get_text('subject');
   }
   /**
    * Get rendered body
    */
   function get_body() {
-    $this->render();
-    return $this->body;
+    return $this->get_text('body');
   }
+  /**
+   * Get rendered text
+   */
+  function get_text($key, $method = NULL) {
+    $method = $method ? $method : $this->method;
+    if (!isset($this->text[$method])) {
+      $this->render();
+    }
+    return isset($this->text[$method][$key]) ? $this->text[$method][$key] : '';
+  }
+  
   /**
    * Get unrendered text parts
    */
-  function get_text($key = NULL) {
+  function get_element($key = NULL) {
     if ($key) {
-      return isset($this->text[$key]) ? $this->text[$key] : NULL;
+      return isset($this->elements[$key]) ? $this->elements[$key] : NULL;
     }
     else {
-      return isset($this->text) ? $this->text : array();
+      return $this->elements;
     }
   }
   /**
-   * Set text part, to be rendered
+   * Set text array, replace in message text
    */
-  function set_text($key, $text) {
-    if ($key) {
-      $this->text[$key] = $text;
-    }
-    else {
-      $this->text = $text;
-    }
-    return $this;
+  function set_element($name, $text) {
+    $this->elements[$name] = $this->prepare_element($text);
   }
   /**
    * Get message files
@@ -272,65 +294,58 @@ class Messaging_Message {
   /**
    * Check parameters and go for alter hook
    */
-  protected function build() {
-    if (!$this->process_todo('build')) {
-      return TRUE;
+  protected function do_build() {
+    // Save the method in case it changes
+    $this->set_status(self::STATUS_BUILD);
+    // Provides a hook for other modules to modify the message before sending
+    $this->invoke_hook('build', $this);
+    // The message must be built, without errors and not for discarding
+    return $this->check_status();
+  }
+  /**
+   * Build text parts for drupal_render()
+   */
+  protected static function prepare_element($text) {
+    if (is_array($text)) {
+      foreach (element_children($text) as $key) {
+        $text[$key] = self::prepare_element($text[$key]);
+      }
+      return $text;
     }
     else {
-      $this->set_status(self::STATUS_BUILD);
-      // Properly set subject and body so they aren't lost when rendering
-      if (isset($this->subject) && !isset($this->text['subject'])) {
-        $this->text['subject'] = $this->subject;
-      }
-      if (isset($this->body) && !isset($template->text['body'])) {
-        $this->text['body'] = $this->body;
-      }
-      // Provides a hook for other modules to modify the message before sending
-      drupal_alter('messaging_message', $this);
-      // The message must be built, without errors and not for discarding
-      return $this->process_done('build');
+      // This should be a string
+      return array('#markup' => $text);
     }
   }
+
   /**
    * Prepare for sending through given method
    * 
    * At this stage, message can be redirected to a different method, marked for queueing, etc..
    */
-  protected function prepare() {
-    if (!$this->process_todo('prepare')) {
-      return TRUE;
-    }
-    elseif ($this->build()) {
-      $this->set_status(self::STATUS_PREPARE);
-      // If message for user, let the sending method prepare the message for this user
-      if (!empty($this->uid)) {
-        $this->process_method('message_user');
-      }
-      // Prepare invoking one or more sending methods
-      $this->process_method('message_prepare') ;
-      // At this stage the message must be ready and have a valid destination
-      return $this->process_done('prepare') && $this->check_destination();
-    }
-    else {
-      return FALSE;
-    }
+  protected function do_prepare() {
+    $this->set_status(self::STATUS_PREPARE);
+    // Prepare text parts for rendering
+    $this->elements['subject'] += array('#type' => 'messaging_subject');
+    $this->elements['body'] += array('#type' => 'messaging_body');
+    // Prepare invoking one or more sending methods
+    $this->send_method()->message_prepare($this);
+    // At this stage the message must be ready and have a valid destination
+    return $this->check_destination();
   }
   
   /**
-   * Render through sending method
+   * Render for current method
    */
   public function render() {
-    if (!$this->process_todo('render')) {
-      return TRUE;
-    }
-    elseif ($this->prepare()) {
-      
-      $this->send_method()->message_render($this);
-      return $this->process_done('render');
-    }
-    else {
-      return FALSE;
-    }
+    return $this->process('build', 'prepare', 'render');
+  }
+  /**
+   * Render through sending method
+   */
+  protected function do_render() {
+    $this->text[$this->method] = $this->send_method()->message_render($this);
+    return TRUE;
   }
 
   /**
@@ -339,43 +354,43 @@ class Messaging_Message {
    * The message may need to be processed and it can be queued or discarded yet.
    */
   public function send() {
-    if ($this->process_todo('dispatch')) {
-      $this->send = 1;
-      return $this->dispatch();
-    }
-    elseif ($this->check_destination()) {
-      $this->set_status(self::STATUS_SEND);
-      // The message has been processed and it is for sending
-      $result = $this->send_method()->message_send($this);
-      if ($result) {
-        $this->sent = time();
-      }
-      return $this->set_status(self::STATUS_SENT, $result);  
-    }
-    else {
-      $this->set_error(self::ERROR_DESTINATION, 'Method or destination invalid.');
-      return FALSE;
-    }
+    $this->send = 1;
+    return $this->process('build', 'prepare', 'dispatch');
   }
-
+  /**
+   * Send message through sending method
+   */
+  protected function do_send() {
+    $this->set_status(self::STATUS_SEND);
+    // The message has been processed and it is for sending
+    $result = $this->send_method()->message_send($this);
+    if ($result) {
+      $this->sent = time();
+      $this->invoke_hook('sent');
+    }
+    return $result;
+  }
   /**
    * Queue message using the messaging store.
    * 
    * This should happen only once per message, we check it hasn't been queued before.
    */
   public function queue() {
-    if ($this->process_todo('dispatch')) {
-      $this->queue = 1;
-      return $this->dispatch();
+    $this->queue = 1;
+    return $this->process('build', 'prepare', 'dispatch');
+  }
+  
+  /**
+   * Queue message using sending method
+   */
+  protected function do_queue() {
+    $this->set_status(self::STATUS_QUEUE);
+    $result = $this->send_method()->message_queue($this);
+    if ($result) {
+      $this->queued = time();
+      $this->invoke_hook('queued');
     }
-    elseif (!$this->process_todo('queue')) {
-      return TRUE;
-    }
-    else {
-      $this->set_status(self::STATUS_QUEUE);
-      $result = $this->send_method()->message_queue($this);
-      return $this->process_done('queue', $result);
-    }
+    return $result;
   }
   
   /**
@@ -384,67 +399,83 @@ class Messaging_Message {
    * @return boolean
    *   Final success status
    */
-  protected function dispatch() {
-    if ($this->prepare() && $this->check_status()) {
-      // Mark as processed, so it is actually queued/sent
-      $this->set_status(self::STATUS_DISPATCH);
-      $this->process_done('dispatch');
-      // Now, depending on message status, make a final decission.
-      if (!empty($this->test)) {
-        $this->result = TRUE;
-        $this->module_invoke('test');
-      } 
-      elseif (!empty($this->queue)) {
-        $this->result = $this->queue();
-        $this->module_invoke('queued');
-      }
-      else {
-        $this->result = $this->send();
-        $this->module_invoke('sent');
-      }
-      // Message done, maybe log and return
-      return $this->done();
+  protected function do_dispatch() {
+    // Mark as processed, so it is actually queued/sent
+    $this->set_status(self::STATUS_DISPATCH);
+    // Now, depending on message status, make a final decission.
+    if (!empty($this->test)) {
+      $result = TRUE;
+      $this->invoke_hook('test');
+    } 
+    elseif (!empty($this->queue)) {
+      $result = $this->process('queue');
     }
     else {
-      $this->discard('Failed processing.');
-      return FALSE;
+      $result = $this->process('send');
     }
+    // Message done, maybe log and return
+    if ($result) {
+      return $this->dispatch_success();
+    }
+    else {
+      return $this->dispatch_failed();
+    }
+  }
+  /**
+   * Run operations on message for current method if not done before
+   * 
+   * @param $step1, $step2....
+   *   Name of operation, the method invoked will be do_$step
+   */
+  protected function process() {
+    $operations = func_get_args();
+    $result = TRUE;
+    while ($result && $step = array_shift($operations)) {
+      $result = $this->process_step($step);
+    }
+    // Success if completed operations and result is still ok
+    return $result && empty($operations);
   }
 
   /**
-   * Mark operation as done
+   * Run operations on message for current method if not done before
+   * 
+   * @param $step
+   *   Name of operation, the method invoked will be do_$step
    */
-  protected function process_done($step, $success = TRUE) {
+  protected function process_step($step) {
+    while ($this->process_todo($step) && $this->check_status()) {
+      $method = $this->method;
+      $function = 'do_' . $step;
+      $success = $this->$function();
+      $this->process_done($step, $success, $method);
+    }
+    return $this->process_result($step);    
+  }
+  /**
+   * Mark operation as done for the current method
+   */
+  protected function process_done($step, $success = TRUE, $method = NULL) {
+    $method = $method ? $method : $this->method;
     $success = $success && $this->result && $this->check_status();
-    $this->process[$step] = $success;
+    $this->process[$method][$step] = $success;
     return $success;
   }
 
   /**
-   * Check whether an operation is still to do
+   * Check whether an operation is still to do for the current method
    */
   protected function process_todo($step) {
-    return empty($this->process[$step]);
+    return !isset($this->process[$this->method][$step]);
+  }
+  
+  /**
+   * Return process result for method and operation
+   */
+  protected function process_result($step) {
+    return !empty($this->process[$this->method][$step]);
   }
 
-  /**
-   * Process through sending method
-   * 
-   * This can go through multiple redirections, we stop it when we get to the same method again or process = FALSE
-   */
-  protected function process_method($operation) {
-    if ($this->send_method()) {
-      $methods = array();
-      // The send method can stop this by setting 'discard' to TRUE
-      while ($this->check_status() && !in_array($this->method, $methods)) {
-        $methods[] = $this->method;
-        $this->send_method()->$operation($this);
-      }
-      return TRUE;
-    } else {
-      return FALSE;
-    }
-  }  
   /**
    * Get generic parameters
    */
@@ -472,7 +503,8 @@ class Messaging_Message {
   function set_error($code = 1, $text = NULL) {
     // This will stop processing if we are in the middle of anything
     $this->set_status(self::STATUS_ERROR);
-    $this->set_text('error', $text ? $text : t('Error code !code', array('!code' => $code)));
+    $text = $text ? $text : t('Error code !code', array('!code' => $code));
+    $this->set_text('error', $text);
     $this->result = FALSE;
     $this->error = $code;
     $this->message_log('Error processing message.');
@@ -496,22 +528,29 @@ class Messaging_Message {
   }
 
   /**
-   * After the message has been processed
+   * After the message has been processed successfully
    */
-  function done() {
-    // Depending on parameters and what's happened so far we make the final log decision
-    if ($this->log) {
+  function dispatch_success() {
+    if ($this->discard) {
+      $this->delete();
+    }
+    elseif ($this->log) {
       $this->log();
     }
-    elseif ($this->discard) {
-      $this->delete();
-    }
-    else {
-      $this->delete();
-    }
-    return $this->result;
+    return TRUE;
   }
-
+  /**
+   * After the message has been processed with errors
+   */
+  function dispatch_failed() {
+    if ($this->discard) {
+      $this->delete();
+    }
+    elseif ($this->error || $this->log) {
+      $this->log();
+    }
+    return FALSE;
+  }
   /**
    * Delete message from logs and store
    */
@@ -551,6 +590,7 @@ class Messaging_Message {
    * Log message
    */
   public function log() {
+    $this->record();
     return $message->save('logs');
   }
   /**
@@ -582,7 +622,7 @@ class Messaging_Message {
   /**
    * Invoke hook_messaging_message() on all modules
    */
-  protected function module_invoke($op) {
+  protected function invoke_hook($op) {
     return module_invoke_all('messaging_message', $op, $this);
   }
   /**

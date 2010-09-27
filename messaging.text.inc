@@ -10,16 +10,15 @@
  */
 class Messaging_Text {
   protected $text = array();
+  protected $build;
+  protected $render;
   public $format = MESSAGING_FORMAT_PLAIN;
   
   /**
    * Construct from array of text parts
    */
-  function __construct($text = array()) {
-    $this->text = $text;
-    foreach (element_children($this->text) as $key) {
-      $this->add_item($key, $this->text[$key]); 
-    }
+  function __construct($elements = array()) {
+    $this->text = $elements;
   }
   /**
    * Add item of unknown type
@@ -31,6 +30,7 @@ class Messaging_Text {
     elseif (is_object($value) || is_array($value)) {
       $this->add_element($name, $value);
     }
+    elseif (is_array($val))
   }
   /**
    * Add element ready for drupal_render()
@@ -43,16 +43,27 @@ class Messaging_Text {
    */
   function add_string($name, $string) {
     $element = array('#markup' => $string);
-    return add_element($name, $selement);
+    return $this->add_element($name, $selement);
   }
-
+  /**
+   * Add text object
+   */
+  function add_text($name, $text = NULL) {
+    $text = isset($text) ? $text : new Messaging_Text();
+    
+  }
   /**
    * Render into text
    */
   function render() {
     return $this->render_text($this->text);
   }
-  
+  /**
+   * Build into array for drupal_render()
+   */
+  function build() {
+    
+  }
   /**
    * Render text recursively
    */

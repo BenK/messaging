@@ -170,8 +170,13 @@ class Messaging_Send_Method extends Messaging_Method {
    * Renders full message with header and body
    */  
   function message_render($message) {
-    $message->subject = $this->render_subject($message->get_text('subject'));
-    $message->body = $this->render_body($message->get_text('body'));
+    $elements = $message->get_elements();
+    $text = array();
+    foreach (element_children($elements) as $name) {
+      $method = method_exists($this, 'render_' . $name) ? 'render_' . $name : 'render_text';
+      $text[$name] = $this->$method($text[$name]);
+    }
+    return $text;
   }
   /**
    * Render message subject
@@ -189,7 +194,7 @@ class Messaging_Send_Method extends Messaging_Method {
   /**
    * Render message text
    */
-  function render_text($text, $defaults = array()) {
+  function render_text($text, $defaults = array('#type' => 'messaging_text')) {
     if (is_array($text)) {
       $text += $defaults;
       return drupal_render($text);
