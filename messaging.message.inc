@@ -62,6 +62,9 @@ class Messaging_Message {
   public $uid;
   // Sender parameters
   public $sender = array();
+  // Module and key (type by module), will have defaults
+  public $module = 'messaging';
+  public $key = 'message';
   // Results for each destination
   public $results = array();
   // Rendered message parts
@@ -142,6 +145,7 @@ class Messaging_Message {
    */
   function add_user($user) {
     if ($destination = $this->send_method()->user_destination($user)) {
+      debug($destination);
       return $this->add_destination($destination);
     }
   }
@@ -213,14 +217,21 @@ class Messaging_Message {
     if ($name = $this->get_sender('name')) {
       return $name;
     }
-    elseif (($uid = $this->get_sender('uid')) && ($user = user_load($uid))) {
-      return $this->sender['name'] = check_plain($user->name);
+    elseif ($account = $this->get_sender_account()) {
+      return $this->sender['name'] = check_plain($account->name);
     }
     else {
       return $this->sender['name'] = variable_get('site_name', 'Drupal');
     }
   }
-
+  /**
+   * Get sender account if uid present
+   */
+  function get_sender_account() {
+    if (isset($this->sender['uid'])) {
+      return user_load($this->sender['uid']);
+    }
+  }
   /**
    * Check message status, will return FALSE if we should stop processing
    */
@@ -372,8 +383,6 @@ class Messaging_Message {
    */
   protected function do_prepare() {
     $this->set_status(self::STATUS_PREPARE);
-    // Fill in sender information
-    $this->sender += array('uid' => 0);
     // Prepare invoking one or more sending methods
     $this->send_method()->message_prepare($this);
     // At this stage the message must be ready and have a valid destination
@@ -505,6 +514,7 @@ class Messaging_Message {
     $method = $method ? $method : $this->method;
     $success = $success && $this->result && $this->check_status();
     $this->process[$method][$step] = $success;
+    $this->message_log('Process done', array('method' => $method, 'step' => $step, 'result' => $success));
     return $success;
   }
 
@@ -672,10 +682,18 @@ class Messaging_Message {
     return module_invoke_all('messaging_message', $op, $this);
   }
   /**
+   * Log facility
+   */
+  protected function message_log($text, $variables = array()) {
+    $variables += array('message' => (string)$this);
+    messaging_debug($text, $variables);
+  }
+  /**
    * Debug facility
    */
-  protected function debug($text) {
-    messaging_debug($text, array('message' => $this));
+  protected function message_debug($text, $variables = array()) {
+    $variables += array('message' => $this);
+    messaging_debug($text, $variables);
   }
   /**
    * Magic method, properly set some variables
@@ -687,5 +705,17 @@ class Messaging_Message {
         // Add text elements the right way
         $this->add_element($name, $value);
     }
+  }
+  // Magic function, format as string
+  public function __toString() {
+    $msid = isset($this->msid);
+    $method = !empty($this->method) ? $this->method : '<none>';
+    $destination = !empty($this->destination) ? implode('; ', array_keys($this->destination)) : '<none>';
+    $text[] = "method= $method";
+    $text[] = "destination= $destination";
+    if (!empty($this->error)) {
+      $text[] = " error=$this->error";
+    }
+    return 'Message: ' . implode(' ', $text);
   }
 }

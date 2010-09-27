@@ -164,8 +164,6 @@ function messaging_admin_test_post_form() {
 function messaging_admin_test_post_form_submit($form, $form_state) {
   global $user;
 
-  messaging_log_start();
-  
   // Convert body in array of lines
   $body = array_map('trim', $form_state['values']['body']);
   $method = $form_state['values']['method'];
@@ -335,4 +333,11 @@ function theme_messaging_admin_settings_table($variables) {
   }
   $output .= drupal_render_children($elements);
   return $output;  
+}
+
+/**
+ * Temporary log facility
+ */
+function messaging_debug_log($text, $variables) {
+  debug($variables, $text);
 }

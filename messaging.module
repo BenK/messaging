@@ -616,6 +616,11 @@ function messaging_element_info() {
     '#separator' => "\n",
     '#theme' => 'messaging_body',
   );
+  $types['messaging_text'] = array(
+    '#separator' => "\n",
+    '#theme' => 'messaging_text',
+    '#pre_render' => array('drupal_pre_render_markup'),
+  );
   return $types;
 }
 
@@ -636,7 +641,7 @@ function messaging_theme() {
       'render element' => 'element',
       'file' => 'messaging.text.inc',
     ),    
-    'messaging_part' => array(
+    'messaging_text' => array(
       'render element' => 'element',
       'file' => 'messaging.text.inc',
     ),
@@ -704,125 +709,19 @@ function messaging_array_list($data, $property, $filter = TRUE, $default = NULL)
 /**
  * Short hand for info logs
  */
-function messaging_log($txt = NULL, $variables = NULL) {
-  return _messaging_log('info', $txt, $variables);
-}
-
-/**
- * Get logs without formatting
- */
-function messaging_log_get() {
-  if ($logs = _messaging_log('return')) {
-    _messaging_log('reset');
-    return $logs;
-  }
-}
-
-/**
- * Init logging system so logs are saved from now on
- */
-function messaging_log_start() {
-  return _messaging_log('start');
+function messaging_log($txt = NULL, $variables = array()) {
+  $variables += array('type' => 'log');
+  messaging_debug($txt, $variables);
 }
 
 /**
  * Short hand for debug logs
  */
-function messaging_debug($txt = NULL, $variables = NULL) {
+function messaging_debug($txt = NULL, $variables = array()) {
   if (function_exists('messaging_debug_log')) {
+    $variables+= array('type' => 'debug');
     return messaging_debug_log($txt, $variables);
-  }  
-}
-
-/**
- * Format logs
- */
-function messaging_log_format($logs) {
-  $rows = array();
-  foreach ($logs as $log) {
-    list($type, $string, $append, $objects) = _messaging_log_format($log);     
-    // Full objects/arrays are only rendered when debug module is enabled
-    if ($objects && function_exists('_messaging_debug_format_log')) {
-      $text = _messaging_debug_format_log($type, $string, $append, $objects);
-    }
-    else {
-      $text = $string;
-      if ($append) {
-        $text .= '<br />' . implode(' ', $append);
-      }
-    }
-    $rows[] = array(
-      $type,
-      $text,
-    );
   }
-  $header = array(t('Type'), t('Message'));
-  return theme('table', array('header' => $header, 'rows' =>$rows));  
-}
-
-/**
- * Quick logging for debugging and manual queue processing
- */
-function _messaging_log($type, $txt = NULL, $variables = NULL, $severity = WATCHDOG_NOTICE) {
-  static $enabled = FALSE;
-  switch ($type) {
-    case 'info':
-    case 'debug':
-      if ($enabled) {
-        $_SESSION['messaging_log'][] = array($type, $txt, $variables, $severity);
-      }
-      break;
-    case 'return':
-      return isset($_SESSION['messaging_log']) ? $_SESSION['messaging_log'] : NULL;
-      break;
-    case 'reset':
-      unset($_SESSION['messaging_log']);
-      break;
-    case 'start':
-      $enabled = TRUE;
-      break;
-    case 'stop':
-      $enabled = FALSE;
-      break;
-  }
-}
-
-/**
- * Format messaging / notifications log as single text line
- */
-function _messaging_log_format($log) {
-  list($type, $string, $args, $severity) = $log;
-  $append = $replace = $objects = array();
-  if ($args) {
-    // Transform arguments before inserting them.
-    foreach ($args as $key => $value) {
-      if (is_numeric($value) || is_string($value)) {
-        switch ($key[0]) {
-          case '@':
-            // Escaped only.
-            $replace[$key] = check_plain($value);
-            break;
-          case '%':
-            $replace[$key] = drupal_placeholder($value);
-            break;
-          case '!':
-            // Pass-through.
-            $replace[$key] = $value;
-            break;
-          default:
-            // Append to string a key value pair, different from watchdog format
-            $append[$key] = '<strong>' . $key . '</strong>= ' . check_plain($value);
-            break;
-        }
-      }
-      elseif (is_array($value) || is_object($value)) {
-        $objects[$key] = $value;
-      }
-    }
-    $string = strtr($string, $replace);
-  }
-
-  return array($type, $string, $append, $objects);
 }
 
 /**   

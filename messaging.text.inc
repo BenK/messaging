@@ -427,11 +427,7 @@ function theme_messaging_message($variables) {
 function theme_messaging_subject($variables) {
   $element = $variables['element'];
   $element += array('#separator' => ' '); 
-  $text[] = $element['#children'];
-  if ($more = drupal_render_children($element)) {
-    $text[] = $more;
-  }
-  return implode($element['#separator'], $text);
+  return theme('messaging_text', array('element' => $element));
 }
 
 /**
@@ -440,11 +436,22 @@ function theme_messaging_subject($variables) {
 function theme_messaging_body($variables) {
   $element = $variables['element'];
   $element += array('#separator' => "\n");
+  return theme('messaging_text', array('element' => $element));
+} 
+
+/**
+ * Theme messaging text
+ */
+function theme_messaging_text($variables) {
+  $element = $variables['element'];
   $text = array();
+  if (!empty($element['#children'])) {
+    $text[] = $element['#children'];
+  }
   foreach (element_children($element) as $key) {
     if (isset($element[$key])) {
       $text[] = is_array($element[$key]) ? drupal_render($element[$key]) : $element[$key];
     }
   }
   return implode($element['#separator'], $text);
-} 
+}

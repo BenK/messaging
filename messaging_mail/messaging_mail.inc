@@ -23,22 +23,62 @@ class Messaging_Mail_Method extends Messaging_Send_Method {
   }
 
   /**
-   * Message default callback: prepare
-   * 
-   * Decide on queue, log, cron and send options, prepare parameters
+   * Add specific mail parameters to message
    */
   function message_prepare($message) {
     // First, decide on queue, log, cron and send options
     parent::message_prepare($message);
     // Build specific mail parameters and store them into the message
-    $params = $message->get_params('mail') + $this->default_params();
+    $params = $this->message_params($message);
     $message->params[$this->method] = $this->mail_params($message, $params);
+  }
+
+  /**
+   * Render message body. This will produce an array of lines to be formatted later
+   */
+  function render_body($text) {
+    $body = array();
+    foreach (element_children($text) as $key) {
+      $body[$key] = $this->render_text($text[$key]);
+    }
+    return $body;
+  }
+
+  /**
+   * Send message to address
+   */
+  function send_address($address, $message) {
+    // Build the message in drupal mail format
+    $mail = $this->mail_build($address, $message);
+    return $this->mail_send($mail, $message);
   }
   
   /**
-   * Get default method parameters
+   * Actually send mail through Drupal system
+   * 
+   * @param $mail
+   *   Built Drupal mail array, not rendered
+   * @param $message
+   *   Original message object
    */
-  static function default_params($message = NULL) {
+  protected static function mail_send($mail, $message) {
+    debug($mail);
+    // Retrieve the responsible implementation for this message.
+    $system = drupal_mail_system($mail['module'], $mail['key']);
+    // Format the message body, last chance for formatting
+    $mail = $system->format($mail);
+    return $system->mail($mail);    
+  }
+  /**
+   * Get message parameters for this method
+   */
+  function message_params($message) {
+    return $message->get_params('mail') + $this->default_params();    
+  }  
+  /**
+   * Get default method parameters, not depending on message
+   */
+  static function default_params() {
     $default_mail = variable_get('site_mail', ini_get('sendmail_from'));
     return array(
       'default_from' => variable_get('messaging_mail_default_from', $default_mail),
@@ -46,40 +86,44 @@ class Messaging_Mail_Method extends Messaging_Send_Method {
     );
   }
 
-
   /**
    * Rebuild message in Drupal mail format, right before sending
    * 
-   * @param $destination
-   *   Email destination
+   * This mimics drupal_mail for finest access to properties
+   * @param $address
+   *   Email address to send to
    * @param $message
    *   Message object
-   * @param $params
-   *   Aditional parameters
-   * @param $alter
-   *   Whether to run the mail_alter hook
    */
-  static function mail_build($destination, $message, $params = array(), $alter = TRUE) {
-    // Build parameters and headers if not previously built
-    if (!$params || empty($params['headers'])) {
-      $params = self::mail_params($message, $params);
-    }
-    // Build the mail object, mimic drupal_mail() format
+  protected function mail_build($address, $message) {
+    $params = $this->message_params($message);
+  
+    // Bundle up the variables into a structured array for altering.
     $mail = array(
-      'id'       => $params['id'],
-      'to'       => $destination,
-      'from'     => $params['from'],
+      'headers' => $this->mail_headers($message, $params),
+      'id'       => $message->module . '_' . $message->key,
+      'module'   => $message->module,
+      'key'      => $message->key,
+      'to'       => $address,
+      'from'     => isset($params['from']) ? $params['from'] : $params['default_from'],
       'language' => $message->get_language(),
+      'params'   => $params,
       'subject'  => $message->get_subject(),
       'body'     => $message->get_body(),
-      'headers'  => $params['headers'],
       'attachments' => $message->get_files(),
-      'params'   => $params,
     );
-    // Invoke hook_mail_alter() to allow all modules to alter the resulting e-mail.
-    if ($alter) {
-      drupal_alter('mail', $mail);
+  
+    // Build the e-mail (get subject and body, allow additional headers) by
+    // invoking hook_mail() on this module. We cannot use module_invoke() as
+    // we need to have $message by reference in hook_mail().
+    if (function_exists($function = $message->module . '_mail')) {
+      $function($message->key, $mail, $params);
     }
+  
+    // Invoke hook_mail_alter() to allow all modules to alter the resulting e-mail.
+    drupal_alter('mail', $mail);
+    
+    // Invoke drupal_mail without sending, then override headers
     return $mail;
   }
   
@@ -97,15 +141,15 @@ class Messaging_Mail_Method extends Messaging_Send_Method {
   /**
    * Prepare from address and mail headers
    */
-  static function mail_params($message, $params = array()) {
+  protected function mail_params($message, $params = array()) {
     // The message 'from' will depend on message sender if present, otherwise default to site mail    
     if (empty($params['from'])) {
       $sender_name = $message->get_sender_name();
-      $sender_account = $message->get_sender();
+      $sender_account = $message->get_sender_account();
       if ($sender_name && $sender_account && !empty($sender_account->mail)) {
-        $from = self::format_from($sender_name, $sender_account->mail);
+        $from = $this->format_from($sender_name, $sender_account->mail);
       } elseif ($sender_name) {
-        $from = self::format_from($sender_name, $params['default_from']);
+        $from = $this->format_from($sender_name, $params['default_from']);
       } else {
         $from = $params['default_from'];
       }
@@ -113,15 +157,12 @@ class Messaging_Mail_Method extends Messaging_Send_Method {
     } else {
       $from = $params['from'];
     }
-  
-    // Set headers, or add to existing ones. Pre-existing ones should not be overridden.
-    $headers = self::mail_headers($params);
-
     $params += array(
-      'id'       => 'messaging_'. (!empty($message->type) ? 'message-'.$message->type : 'message'),
       'from'     => $from,
       'headers'  => array(),
     );
+    // Set headers, or add to existing ones. Pre-existing ones should not be overridden.
+    $headers = $this->mail_headers($message, $params);
     $params['headers'] += $headers;  
   
     return $params;
@@ -136,9 +177,8 @@ class Messaging_Mail_Method extends Messaging_Send_Method {
    *   - 'default_from', Default from address
    *   - 'headers', Predefined headers to be added to this one
    */
-  static function mail_headers($params) {
+  static function mail_headers($message, $params = array()) {
     $headers = !empty($params['headers']) ? $params['headers'] : array();
-    
     // Add some default headers
     $headers += array(
       'MIME-Version'              => '1.0',
@@ -146,27 +186,22 @@ class Messaging_Mail_Method extends Messaging_Send_Method {
       'Content-Transfer-Encoding' => '8Bit',
       'X-Mailer'                  => 'Drupal'
     );
-    
     $default_from = $params['default_from'];
     $from = !empty($params['from']) ? $params['from'] : $default_from;
-  
     // Set default headers depending on data
     $headers += array(
       'From' => $from,
       'Reply-To' => $from,
     );
-    
     if ($params['returnpath']) {
       // To prevent e-mail from looking like spam, the addresses in the Sender and
       // Return-Path headers should have a domain authorized to use the originating
       // SMTP server. Errors-To is redundant, but shouldn't hurt.
       $more_headers['Sender'] = $more_headers['Return-Path'] = $more_headers['Errors-To'] = $params['returnpath'];
       $headers += $more_headers;
-    }  
-  
+    }
     return $headers;
   }
-  
 }
 
 /**

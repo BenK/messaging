@@ -103,6 +103,13 @@ abstract class Messaging_Method {
     }  
   }
 
+  /**
+   * Log message action
+   */
+  protected function message_log($text, $message) {
+    $text = $this->get_name() . ': ' . $text;
+    messaging_log($text, array('message' => $message));
+  }
 }
 
 /**
@@ -128,7 +135,7 @@ class Messaging_Send_Method extends Messaging_Method {
   * Get address type
   */
   public static function address_type() {
-    return 'user';
+    return 'none';
   }
 
   /**
@@ -156,6 +163,7 @@ class Messaging_Send_Method extends Messaging_Method {
       $message->queue = 1;
     }
     $message->log = $message->log || $this->log;
+    $this->message_log('Message prepared', $message);
   }
 
   /**
@@ -208,7 +216,8 @@ class Messaging_Send_Method extends Messaging_Method {
    * Send message to a single or multiple destination
    */
   function message_send($message) {
-    $destinations = $message->get_destinations();
+    $this->message_log('Message send', $message);
+    $destinations = $message->get_destinations();debug($destinations);
     $results = $this->send_multiple($destinations, $message);
     $message->set_results($results);
     return (boolean)array_filter($results);
@@ -270,7 +279,7 @@ class Messaging_Send_Method extends Messaging_Method {
    *   User account object or uid
    */
   function user_destination($account) {
-    return Messaging_Destination::build_user(self::address_type(), $account);
+    return Messaging_Destination::build_user($this->address_type(), $account);
   }
 
   /**
@@ -291,21 +300,21 @@ class Messaging_Send_Method extends Messaging_Method {
   /**
    * Make address into destination
    */
-  function address_destination($address, $validate = TRUE) {
-    return Messaging_Destination::build_address(self::address_type(), $address, $validate);
+  public function address_destination($address, $validate = TRUE) {
+    return Messaging_Destination::build_address($this->address_type(), $address, $validate);
   }
   /**
    * Validate address
    */
-  public static function address_validate($address) {
-    return Messaging_Destination::validate_address($address, self::address_type());
+  public function address_validate($address) {
+    return Messaging_Destination::validate_address($address, $this->address_type());
   }
 
   /**
    * Format address for display
    */
-  public static function format_address($address, $format = MESSAGING_FORMAT_PLAIN) {
-    return Messaging_Destination::format_address($address, $format, self::address_type());
+  public function format_address($address, $format = MESSAGING_FORMAT_PLAIN) {
+    return Messaging_Destination::format_address($address, $format, $this->address_type());
   }
 
   /**
