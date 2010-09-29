@@ -8,5 +8,5 @@ files[] = messaging.message.inc
 files[] = messaging.method.inc
 files[] = messaging.destination.inc
 files[] = messaging.text.inc
-configure = admin/messaging
+configure = admin/config/messaging
 

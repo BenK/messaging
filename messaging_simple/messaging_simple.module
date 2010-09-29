@@ -64,6 +64,14 @@ function messaging_simple_access($account, $message = NULL) {
 }
 
 /**
+ * Implementation of hook_user_delete().
+ */
+function messaging_simple_user_delete($user) {
+  // Delete user data from tables
+  db_delete('messaging_simple')->condition('uid', $user->uid)->execute();
+}
+
+/**
  * Load callback
  */
 function messaging_simple_message_load($mgid) {

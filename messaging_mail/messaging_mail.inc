@@ -39,7 +39,7 @@ class Messaging_Mail_Method extends Messaging_Send_Method {
   function render_body($text) {
     $body = array();
     foreach (element_children($text) as $key) {
-      $body[$key] = $this->render_text($text[$key], array('#type' => '#separator' => "\n"));
+      $body[$key] = $this->render_text($text[$key], array('#type' => 'messaging_text', '#separator' => "\n"));
     }
     return $body;
   }
