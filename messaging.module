@@ -133,8 +133,8 @@ function messaging_menu() {
   $items['admin/config/messaging'] = array(
     'title' => 'Messaging',
     'description' => 'Administer and configure messaging',
-    'access arguments' => array('administer messaging'),
     'page callback' => 'system_admin_menu_block_page',
+    'access arguments' => array('access administration pages'),
     'file' => 'system.admin.inc',
     'file path' => drupal_get_path('module', 'system'),
   );
@@ -145,7 +145,6 @@ function messaging_menu() {
     'page arguments' => array('messaging_admin_settings'),
     'access arguments' => array('administer messaging'),
     'file' => 'messaging.admin.inc',
-    'type' => MENU_CALLBACK,
   );
   $items['admin/config/messaging/settings/overview'] = array(
     'title' => 'Messaging',
@@ -153,7 +152,16 @@ function messaging_menu() {
     'type' => MENU_DEFAULT_LOCAL_TASK,
     'weight' => -10,
   );
-  $items['admin/config/messaging/settings/method'] = array(
+  $items['admin/config/messaging/settings/test'] = array(
+    'title' => 'Test',
+    'description' => 'Test message sending',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('messaging_admin_test_post_form'),
+    'access arguments' => array('administer messaging'),
+    'file' => 'messaging.admin.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+  $items['admin/config/messaging/method'] = array(
     'title' => 'Send methods',
     'description' => 'Configuration of sending methods',
     'page callback' => 'drupal_get_form',
@@ -161,15 +169,14 @@ function messaging_menu() {
     'access arguments' => array('administer messaging'),
     'weight' => -10,
     'file' => 'messaging.admin.inc',
-    'type' => MENU_LOCAL_TASK,
   );
-  $items['admin/config/messaging/settings/method/overview'] = array(
+  $items['admin/config/messaging/method/overview'] = array(
     'title' => 'Options',
     'description' => 'General settings',
     'type' => MENU_DEFAULT_LOCAL_TASK,
     'weight' => -10,
   );
-  $items['admin/config/messaging/settings/method/filters'] = array(
+  $items['admin/config/messaging/method/filters'] = array(
     'title' => 'Filters',
     'description' => 'Filters and formatting',
     'page callback' => 'drupal_get_form',
@@ -179,17 +186,7 @@ function messaging_menu() {
     'type' => MENU_LOCAL_TASK,
   );
 
-  // Test tab, moving from messaging_debug()
-  $items['admin/config/messaging/settings/test'] = array(
-    'title' => 'Test',
-    'description' => 'Test message sending',
-    'page callback' => 'drupal_get_form',
-    'page arguments' => array('messaging_admin_test_post_form'),
-    'access arguments' => array('administer messaging'),
-    'file' => 'messaging.admin.inc',
-    'weight' => -10,
-    'type' => MENU_LOCAL_TASK,
-  );
+
   return $items;
 }
 
