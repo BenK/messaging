@@ -101,6 +101,22 @@ class Messaging_Destination extends Messaging_Object {
     return $destination;
   }
   /**
+   * Build from method, address, user
+   */
+  public static function build_method($method, $adress = NULL, $account = NULL) {
+    $type = messaging_method($method)->address_type();
+    $uid = $account ? $account->uid : 0;
+    if ($type && $address) {
+      return self::build($type, $address, $uid);
+    }
+    elseif($type && $account) {
+      return self::build_user($type, $user);
+    }
+    elseif ($account) {
+      return messaging_method($method)->user_destination($account);
+    }
+  }
+  /**
    * Build from address
    */
   public static function build_address($type, $address, $validate = FALSE) {
@@ -128,6 +144,7 @@ class Messaging_Destination extends Messaging_Object {
     return entity_load('messaging_destination', $mdids, $conditions);
   }
 
+  
   /**
    * Validate values to create a destination
    * 
