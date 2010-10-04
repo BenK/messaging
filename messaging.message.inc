@@ -119,8 +119,8 @@ class Messaging_Message {
   function add_destination($destination, $check = FALSE) {
     if (!$check || $destination->type == $this->send_method()->address_type()) {
       $this->destination[$destination->index()] = $destination;
-      return $destination;
     }
+    return $this;
   }
   /**
    * Add destination list, taking care of duplicated destinations
@@ -133,7 +133,7 @@ class Messaging_Message {
     foreach ($destinations as $index => $dest) {
       $destinations[$index] = $this->add_destination($dest, $check);
     }
-    return array_filter($destinations);
+    return $this;
   }
   /**
    * Add user as a destination
@@ -145,9 +145,9 @@ class Messaging_Message {
    */
   function add_user($user) {
     if ($destination = $this->send_method()->user_destination($user)) {
-      debug($destination);
-      return $this->add_destination($destination);
+      $this->add_destination($destination);
     }
+    return $this;
   }
   /**
    * Add list of users as destinations
@@ -156,15 +156,16 @@ class Messaging_Message {
     foreach ($users as $index => $user) {
       $users[$index] = $this->add_user();
     }
-    return array_filter($users);
+    return $this;
   }
   /**
    * Add address or array of addresses as destination
    */
   function add_address($address, $validate = TRUE) {
     if ($destination = $this->send_method()->address_destination($address, $validate)) {
-      return $this->add_destination($destination);
-    } 
+      $this->add_destination($destination);
+    }
+    return $this;
   }
   /**
    * Add list of addresses as destinations
@@ -173,7 +174,7 @@ class Messaging_Message {
     foreach ($addresses as $key => $address) {
       $addresses[$key] = $this->add_address($address);
     }
-    return array_filter($addresses);
+    return $this;
   }
   /**
    * Get destinations for sending
@@ -192,7 +193,15 @@ class Messaging_Message {
     }
     return $this->add_user($account);
   }
-
+  /**
+   * Set send method
+   * 
+   * @todo Should we reset some parts when changing method?
+   */
+  function set_method($method) {
+    $this->method = $method;
+    return $this;
+  }
   /**
    * Get user, if the message is intended for a single user
    */
@@ -335,12 +344,14 @@ class Messaging_Message {
    */
   function set_element($name, $element) {
     $this->elements[$name] = $this->prepare_element($element);
+    return $this;
   }
   /**
    * Add element array, merge in message text
    */
   function add_element($name, $element) {
     $this->elements[$name] = array_merge($this->elements[$name], $this->prepare_element($element));
+    return $this;
   }
   /**
    * Get message files
