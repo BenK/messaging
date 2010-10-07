@@ -182,7 +182,9 @@ function messaging_admin_test_post_form_submit($form, $form_state) {
   
   if ($account = user_load_by_name($address)) {
     $vars['!name'] = theme('username', array('account' => $account));
-    if ($destination = $message->set_user($account)) {
+    $message->set_user($account);
+    if ($dest = $message->get_destinations()) {
+      $destination = reset($dest);
       drupal_set_message(t('Found address @address for user !name', array('@address' => $destination->format('long')) + $vars));
       $result = $message->send();
     }
